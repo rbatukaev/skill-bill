@@ -47,6 +47,10 @@ If the chosen scope contains no unit tests, say so clearly and stop.
 - Reproducing the implementation step-for-step inside the test and comparing the duplicated result
 - Tests that only assert `not null`, `true`, `false`, or collection size without tying that assertion to meaningful behavior
 - Testing trivial mappers, property accessors, generated code, or boilerplate solely to raise coverage numbers
+- Asserting only part of a response or error payload is often low-value when the project treats the full payload as the contract
+- Tests that assert only status codes or only dispatch-style signals are often weak if they do not check persisted or externally visible outcomes
+- Tests for retries, duplicate delivery, or after-commit flows are often weak if they do not prove ordering, idempotency, or externally visible effects
+- Framework-heavy tests are often low-value when they mostly prove the framework works rather than project behavior, unless they protect a real local integration contract
 
 ## Cases That May Look Trivial But Can Still Be Valuable
 - Constructors or factories that validate, normalize, trim, clamp, parse, or reject input

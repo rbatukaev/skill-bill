@@ -13,13 +13,13 @@ Execute `./gradlew check` and systematically fix issues **only in files changed 
 2. **Run initial check**: Execute `./gradlew check` and capture complete output
 3. **Filter to changed files**: From the check output, only address issues in files from step 1 — skip everything else
 4. **Categorize issues**: Group by type (structural, formatting, lint errors, test failures, deprecations, etc.)
-4. **Fix systematically**: For each issue category in priority order:
+5. **Fix systematically**: For each issue category in priority order:
    - Mark todo as in_progress
    - Read affected files
    - Implement proper fixes (never suppress)
    - Mark todo as completed
-5. **Verify fixes**: Re-run `./gradlew check` after all fixes
-6. **Iterate if needed**: If new issues appear, repeat the process
+6. **Verify fixes**: Re-run `./gradlew check` after all fixes
+7. **Iterate if needed**: If new issues appear, repeat the process
 
 ## Fix Strategy
 
@@ -97,3 +97,4 @@ Provide clear progress updates:
 - Report each fix with file path and line number
 - Display final `./gradlew check` result
 - Summarize all changes made
+- If a required command could not be run, report that explicitly with the reason

@@ -35,6 +35,7 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - No secrets, tokens, passwords, or private keys in code, logs, tests, or repo config
 - Sensitive identifiers and personal data must not be logged or exposed without explicit need and protection
 - New code paths must preserve auth/authz guarantees and avoid bypassable feature-flag checks
+- Treat all external input as untrusted and validate or constrain it at the boundary
 
 ### Android/KMP-Specific Rules
 

@@ -40,6 +40,7 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - Treat tautological tests as test gaps when they create false confidence without exercising real logic
 - Mock only true external boundaries; over-mocking internal collaborators can hide regressions
 - Coroutine tests should control time/dispatchers deterministically where ordering or retry behavior matters
+- Domain logic should be tested comprehensively in framework-free unit tests when the project architecture isolates domain behavior
 
 ### Unit Test Value Lens
 - Flag tests that only instantiate a DTO/model, assign values, and assert the same values without logic in between

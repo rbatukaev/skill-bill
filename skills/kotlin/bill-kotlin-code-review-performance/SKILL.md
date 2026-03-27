@@ -8,7 +8,7 @@ description: Use when reviewing performance risks in Android, KMP, backend/serve
 Review only high-impact performance issues.
 
 ## Focus
-- Main-thread or request-thread blocking
+- Blocking or heavy work on main-thread, request-thread, or other latency-sensitive execution paths
 - Expensive or repeated work in hot paths
 - Inefficient DB/network access patterns (N+1, redundant calls)
 - Retry/backoff inefficiency and battery/network/CPU waste
