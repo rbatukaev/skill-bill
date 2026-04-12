@@ -1,6 +1,6 @@
 ---
 name: bill-go-code-review-security
-description: Use when reviewing security risks in changed Go backend/service code including auth/session safety, secrets handling, trust boundaries, sensitive data exposure, injection, file handling, and output encoding.
+description: Use when reviewing security risks in changed Go backend/service code including auth/session safety, secrets handling, trust boundaries, sensitive data exposure, injection, file handling, and output encoding. Use when user mentions auth, secrets, TLS, injection, SSRF, or security review in Go.
 ---
 
 # Security Review Specialist
@@ -70,6 +70,12 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - Confidence: `High | Medium | Low`
 - Include a minimal, concrete fix.
 
-## Output Table
-| Area | Severity | Confidence | Evidence | Why it matters | Minimal fix |
-|------|----------|------------|----------|----------------|-------------|
+## Output Format
+
+Every finding must use this exact bullet format for downstream tooling:
+
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
+
+Do NOT use markdown tables, numbered lists, or any other format for findings.

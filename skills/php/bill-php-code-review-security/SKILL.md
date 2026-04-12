@@ -1,6 +1,6 @@
 ---
 name: bill-php-code-review-security
-description: Use when reviewing security risks in changed PHP/backend code including auth/session safety, secrets handling, trust boundaries, sensitive data exposure, injection, file handling, and output encoding.
+description: Use when reviewing security risks in changed PHP/backend code including auth/session safety, secrets handling, trust boundaries, sensitive data exposure, injection, file handling, and output encoding. Use when user mentions auth, XSS, CSRF, injection, upload safety, or security review in PHP.
 ---
 
 # Security Review Specialist
@@ -72,6 +72,12 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - Confidence: `High | Medium | Low`
 - Include a minimal, concrete fix.
 
-## Output Table
-| Area | Severity | Confidence | Evidence | Why it matters | Minimal fix |
-|------|----------|------------|----------|----------------|-------------|
+## Output Format
+
+Every finding must use this exact bullet format for downstream tooling:
+
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
+
+Do NOT use markdown tables, numbered lists, or any other format for findings.

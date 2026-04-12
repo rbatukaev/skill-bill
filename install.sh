@@ -3,6 +3,7 @@ set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$PLUGIN_DIR/skills"
+MANAGED_INSTALL_MARKER=".skill-bill-install"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -42,6 +43,7 @@ get_agent_path() {
     copilot) echo "$HOME/.copilot/skills" ;;
     claude)  echo "$HOME/.claude/commands" ;;
     glm)     echo "$HOME/.glm/commands" ;;
+    opencode) echo "$HOME/.config/opencode/skills" ;;
     codex)
       if [[ -d "$HOME/.codex" || -d "$HOME/.codex/skills" ]]; then
         echo "$HOME/.codex/skills"
@@ -76,14 +78,18 @@ declare -a RENAMED_SKILL_PAIRS=(
   'bill-gcheck:bill-quality-check'
 )
 
-declare -a SUPPORTED_AGENTS=(copilot claude glm codex)
+declare -a SUPPORTED_AGENTS=(copilot claude glm codex opencode)
 declare -a SKILL_NAMES=()
 declare -a SKILL_PATHS=()
 declare -a INSTALL_SKILL_NAMES=()
 declare -a INSTALL_SKILL_PATHS=()
+declare -a INSTALL_TARGET_NAMES=()
 declare -a PLATFORM_PACKAGES=()
+declare -a REQUIRED_PLATFORM_PACKAGES=(agent-config)
 declare -a SELECTED_PLATFORM_PACKAGES=()
 declare -a LEGACY_SKILL_NAMES=()
+INSTALL_PREFIX="bill"
+TELEMETRY_LEVEL="anonymous"
 
 remove_if_allowed() {
   local target="$1"
@@ -92,8 +98,20 @@ remove_if_allowed() {
     return 0
   fi
 
-  rm -rf "$target"
-  return 0
+  if [[ -L "$target" ]]; then
+    rm -f "$target"
+    return 0
+  fi
+
+  if [[ -d "$target" ]]; then
+    if [[ -f "$target/$MANAGED_INSTALL_MARKER" ]] || path_has_matching_skill_name "$target"; then
+      rm -rf "$target"
+      return 0
+    fi
+  fi
+
+  err "Refusing to overwrite existing non-Skill-Bill path: $target"
+  return 1
 }
 
 lookup_renamed_skill() {
@@ -145,12 +163,38 @@ trim_string() {
   printf '%s' "$value"
 }
 
+normalize_prefix_token() {
+  local value
+  value="$(trim_string "$1")"
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  value="${value#/}"
+  while [[ "$value" == *- ]]; do
+    value="${value%-}"
+  done
+  printf '%s' "$value"
+}
+
 normalize_platform_token() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]_/-'
 }
 
 normalize_agent_token() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]'
+}
+
+is_valid_prefix() {
+  [[ "$1" =~ ^[a-z][a-z0-9-]*$ ]]
+}
+
+alias_skill_name() {
+  local canonical_name="$1"
+
+  if [[ "$INSTALL_PREFIX" == "bill" ]] || [[ "$canonical_name" != bill-* ]]; then
+    printf '%s' "$canonical_name"
+    return 0
+  fi
+
+  printf '%s-%s' "$INSTALL_PREFIX" "${canonical_name#bill-}"
 }
 
 add_agent_selection() {
@@ -281,6 +325,7 @@ prompt_for_agent_selection() {
 
 display_platform_name() {
   case "$1" in
+    agent-config) printf 'Agent config' ;;
     backend-kotlin) printf 'Kotlin backend' ;;
     kotlin) printf 'Kotlin' ;;
     kmp) printf 'KMP' ;;
@@ -310,6 +355,9 @@ build_platform_packages() {
   done
 
   for package in "${discovered[@]:-}"; do
+    if array_contains "$package" "${REQUIRED_PLATFORM_PACKAGES[@]:-}"; then
+      continue
+    fi
     if ! array_contains "$package" "${PLATFORM_PACKAGES[@]:-}"; then
       PLATFORM_PACKAGES+=("$package")
     fi
@@ -350,6 +398,10 @@ resolve_platform_selection() {
       printf 'backend-kotlin\n'
       return 0
       ;;
+    agentconfig|skillrepo|skillsinfra)
+      printf '__deprecated_agent_config__\n'
+      return 0
+      ;;
     kotlin)
       printf 'kotlin\n'
       return 0
@@ -360,6 +412,10 @@ resolve_platform_selection() {
       ;;
     php)
       printf 'php\n'
+      return 0
+      ;;
+    go|golang)
+      printf 'go\n'
       return 0
       ;;
   esac
@@ -395,6 +451,16 @@ format_platform_list() {
   printf '%s' "$result"
 }
 
+append_required_platform_packages() {
+  local package
+
+  for package in "${REQUIRED_PLATFORM_PACKAGES[@]:-}"; do
+    if [[ -d "$SKILLS_DIR/$package" ]] && ! array_contains "$package" "${SELECTED_PLATFORM_PACKAGES[@]:-}"; then
+      SELECTED_PLATFORM_PACKAGES+=("$package")
+    fi
+  done
+}
+
 prompt_for_platform_selection() {
   local input
   local i
@@ -407,25 +473,26 @@ prompt_for_platform_selection() {
 
   if [[ ${#PLATFORM_PACKAGES[@]} -eq 0 ]]; then
     SELECTED_PLATFORM_PACKAGES=()
+    append_required_platform_packages
     return 0
   fi
 
   while true; do
     echo ""
-    info "Available platforms:"
+    info "Available optional platforms:"
     for i in "${!PLATFORM_PACKAGES[@]}"; do
       package="${PLATFORM_PACKAGES[$i]}"
       printf "  %s. %s (%s)\n" "$((i + 1))" "$(display_platform_name "$package")" "$package"
     done
     option_number=$(( ${#PLATFORM_PACKAGES[@]} + 1 ))
     printf "  %s. all (install every platform package)\n" "$option_number"
-    info "Base skills are always installed."
-    info "Choose one or more platform options (comma-separated)."
-    printf "${CYAN}▸${NC} Enter platforms (e.g. Kotlin backend, Kotlin, KMP or PHP): "
+    info "Base skills and Agent config skills are always installed."
+    info "Choose one or more optional platform numbers (comma-separated). Names still work if you prefer them."
+    printf "${CYAN}▸${NC} Enter platforms (e.g. 1,3 or %s): " "$option_number"
     read -r input
 
     if [[ -z "$(trim_string "$input")" ]]; then
-      warn "No platforms provided. Choose at least one platform."
+      warn "No platforms provided. Choose at least one optional platform."
       continue
     fi
 
@@ -439,6 +506,10 @@ prompt_for_platform_selection() {
       resolved="$(resolve_platform_selection "$token" 2>/dev/null || true)"
       if [[ -z "$resolved" ]]; then
         invalid_tokens+=("$token")
+        continue
+      fi
+      if [[ "$resolved" == "__deprecated_agent_config__" ]]; then
+        info "Agent config is now always installed. The '$token' alias is no longer needed."
         continue
       fi
       if [[ "$resolved" == "__all__" ]]; then
@@ -456,11 +527,77 @@ prompt_for_platform_selection() {
     fi
 
     if [[ ${#SELECTED_PLATFORM_PACKAGES[@]} -eq 0 ]]; then
-      warn "No valid platforms selected. Choose at least one platform."
+      warn "No valid platforms selected. Choose at least one optional platform."
       continue
     fi
 
+    append_required_platform_packages
     return 0
+  done
+}
+
+prompt_for_skill_prefix() {
+  local input
+  local normalized
+
+  while true; do
+    echo ""
+    info "Choose the user-facing skill prefix."
+    info "Press Enter to keep the default prefix: bill"
+    printf "${CYAN}▸${NC} Enter prefix: "
+    if ! read -r input; then
+      input=""
+    fi
+
+    normalized="$(normalize_prefix_token "$input")"
+    if [[ -z "$normalized" ]]; then
+      INSTALL_PREFIX="bill"
+      return 0
+    fi
+
+    if ! is_valid_prefix "$normalized"; then
+      warn "Prefix must start with a letter and use only lowercase letters, digits, or hyphens."
+      continue
+    fi
+
+    INSTALL_PREFIX="$normalized"
+    return 0
+  done
+}
+
+prompt_for_telemetry_preference() {
+  local input
+  local normalized
+
+  while true; do
+    echo ""
+    info "Choose a telemetry level. You can change it later with 'skill-bill telemetry set-level'."
+    printf "  1. anonymous (default) — aggregate counts, no content\n"
+    printf "  2. full — includes finding details, learnings, rejection notes\n"
+    printf "  3. off — no telemetry\n"
+    printf "${CYAN}▸${NC} Enter telemetry level [1]: "
+    if ! read -r input; then
+      input=""
+    fi
+
+    normalized="$(printf '%s' "$(trim_string "$input")" | tr '[:upper:]' '[:lower:]')"
+    case "$normalized" in
+      ""|1|anonymous)
+        TELEMETRY_LEVEL="anonymous"
+        return 0
+        ;;
+      2|full)
+        TELEMETRY_LEVEL="full"
+        return 0
+        ;;
+      3|off)
+        TELEMETRY_LEVEL="off"
+        return 0
+        ;;
+      *)
+        warn "Enter 1, 2, 3, anonymous, full, off, or press Enter for the default."
+        ;;
+    esac
   done
 }
 
@@ -491,17 +628,21 @@ build_install_skill_names() {
   local idx
   local skill_dir
   local package_name
+  local canonical_name
 
   INSTALL_SKILL_NAMES=()
   INSTALL_SKILL_PATHS=()
+  INSTALL_TARGET_NAMES=()
 
   for idx in "${!SKILL_NAMES[@]}"; do
     skill_dir="${SKILL_PATHS[$idx]}"
     package_name="$(basename "$(dirname "$skill_dir")")"
+    canonical_name="${SKILL_NAMES[$idx]}"
 
     if [[ "$package_name" == "base" ]] || array_contains "$package_name" "${SELECTED_PLATFORM_PACKAGES[@]:-}"; then
-      INSTALL_SKILL_NAMES+=("${SKILL_NAMES[$idx]}")
+      INSTALL_SKILL_NAMES+=("$canonical_name")
       INSTALL_SKILL_PATHS+=("$skill_dir")
+      INSTALL_TARGET_NAMES+=("$(alias_skill_name "$canonical_name")")
     fi
   done
 }
@@ -585,6 +726,86 @@ install_skill_link() {
   ok "  $label"
 }
 
+path_has_matching_skill_name() {
+  local target="$1"
+  local skill_file="$target/SKILL.md"
+  local declared_name=""
+  local expected_name
+
+  [[ -d "$target" ]] || return 1
+  [[ -f "$skill_file" ]] || return 1
+
+  expected_name="$(basename "$target")"
+  declared_name="$(sed -n 's/^name:[[:space:]]*//p' "$skill_file" | head -n 1)"
+  [[ "$declared_name" == "$expected_name" ]]
+}
+
+rewrite_markdown_file() {
+  local source_file="$1"
+  local target_file="$2"
+
+  if [[ "$INSTALL_PREFIX" == "bill" ]]; then
+    cp "$source_file" "$target_file"
+    return 0
+  fi
+
+  SKILL_BILL_INSTALL_PREFIX="$INSTALL_PREFIX" perl -0pe \
+    's/\bbill-([a-z0-9-]+)/$ENV{"SKILL_BILL_INSTALL_PREFIX"} . "-" . $1/ge' \
+    "$source_file" > "$target_file"
+}
+
+install_generated_skill_dir() {
+  local target="$1"
+  local source="$2"
+  local label="$3"
+  local source_path
+  local relative_path
+  local target_path
+
+  if [[ -e "$target" || -L "$target" ]]; then
+    remove_if_allowed "$target"
+  fi
+
+  mkdir -p "$target"
+  {
+    printf 'managed_by=skill-bill\n'
+    printf 'canonical_name=%s\n' "$(basename "$source")"
+    printf 'installed_name=%s\n' "$(basename "$target")"
+    printf 'prefix=%s\n' "$INSTALL_PREFIX"
+  } > "$target/$MANAGED_INSTALL_MARKER"
+
+  while IFS= read -r source_path; do
+    relative_path="${source_path#$source/}"
+    target_path="$target/$relative_path"
+
+    if [[ -d "$source_path" ]]; then
+      mkdir -p "$target_path"
+      continue
+    fi
+
+    mkdir -p "$(dirname "$target_path")"
+    if [[ "$source_path" == *.md ]]; then
+      rewrite_markdown_file "$source_path" "$target_path"
+    else
+      cp "$source_path" "$target_path"
+    fi
+  done < <(find "$source" -mindepth 1 | sort)
+
+  ok "  $label"
+}
+
+install_skill() {
+  local target="$1"
+  local source="$2"
+  local label="$3"
+
+  if [[ "$INSTALL_PREFIX" == "bill" ]]; then
+    install_skill_link "$target" "$source" "$label"
+  else
+    install_generated_skill_dir "$target" "$source" "$label"
+  fi
+}
+
 parse_args "$@"
 build_skill_names
 build_legacy_skill_names
@@ -593,10 +814,12 @@ build_platform_packages
 echo ""
 printf "${CYAN}━━━ Skill Bill Installer ━━━${NC}\n"
 echo ""
-info "Supported agents: copilot, claude, glm, codex"
+info "Supported agents: copilot, claude, glm, codex, opencode"
 info "Install behavior: replace existing Skill Bill installs and reinstall the selected platforms."
 prompt_for_agent_selection
 prompt_for_platform_selection
+prompt_for_skill_prefix
+prompt_for_telemetry_preference
 build_install_skill_names
 
 echo ""
@@ -604,9 +827,11 @@ info "Plugin:  $PLUGIN_DIR"
 info "Agents selected: $(format_agent_list "${AGENT_NAMES[@]}")"
 info "Skills found: ${#SKILL_NAMES[@]}"
 info "Skills selected: ${#INSTALL_SKILL_NAMES[@]} (base + $(format_platform_list "${SELECTED_PLATFORM_PACKAGES[@]}"))"
+info "Command prefix: ${INSTALL_PREFIX}-"
+info "Telemetry:      $TELEMETRY_LEVEL"
 echo ""
 
-info "Removing existing Skill Bill symlinks before reinstalling the selected platforms."
+info "Removing existing Skill Bill installs before reinstalling the selected platforms."
 bash "$PLUGIN_DIR/uninstall.sh"
 echo ""
 
@@ -620,15 +845,238 @@ for i in "${!AGENT_NAMES[@]}"; do
 
   for idx in "${!INSTALL_SKILL_NAMES[@]}"; do
     skill="${INSTALL_SKILL_NAMES[$idx]}"
-    install_skill_link "$agent_dir/$skill" "${INSTALL_SKILL_PATHS[$idx]}" "$skill → plugin"
+    target_skill="${INSTALL_TARGET_NAMES[$idx]}"
+    install_skill "$agent_dir/$target_skill" "${INSTALL_SKILL_PATHS[$idx]}" "$target_skill → plugin ($skill)"
   done
   echo ""
 done
+
+SKILL_BILL_STATE_DIR="${HOME}/.skill-bill"
+export SKILL_BILL_CONFIG_PATH="${SKILL_BILL_CONFIG_PATH:-${SKILL_BILL_STATE_DIR}/config.json}"
+export SKILL_BILL_REVIEW_DB="${SKILL_BILL_REVIEW_DB:-${SKILL_BILL_STATE_DIR}/review-metrics.db}"
+
+if [[ "$TELEMETRY_LEVEL" != "off" ]]; then
+  info "Installing skill-bill CLI and MCP server..."
+  if python3 -m pip install -e "$PLUGIN_DIR" --quiet 2>/dev/null; then
+    ok "skill-bill CLI installed"
+    register_mcp_json() {
+      local config_path="$1"
+      local label="$2"
+      if python3 -c "
+import json, sys, os
+path = sys.argv[1]
+try:
+    settings = json.loads(open(path).read())
+except (FileNotFoundError, json.JSONDecodeError):
+    settings = {}
+servers = settings.get('mcpServers', {})
+servers['skill-bill'] = {
+    'type': 'stdio',
+    'command': sys.executable,
+    'args': ['-m', 'skill_bill.mcp_server']
+}
+settings['mcpServers'] = servers
+os.makedirs(os.path.dirname(path), exist_ok=True)
+open(path, 'w').write(json.dumps(settings, indent=2, sort_keys=True) + '\n')
+" "$config_path" 2>/dev/null; then
+        ok "  skill-bill MCP server registered ($label)"
+      else
+        warn "  Could not register MCP server ($label)."
+      fi
+    }
+    register_mcp_toml() {
+      local config_path="$1"
+      local label="$2"
+      if python3 -c "
+import sys, os
+path = sys.argv[1]
+python_cmd = sys.executable
+section = '[mcp_servers.skill-bill]'
+lines = []
+if os.path.exists(path):
+    lines = open(path).read().splitlines()
+filtered = []
+skip = False
+for line in lines:
+    if line.strip() == section:
+        skip = True
+        continue
+    if skip and (line.startswith('[') or not line.strip()):
+        if line.startswith('['):
+            skip = False
+            filtered.append(line)
+        continue
+    if not skip:
+        filtered.append(line)
+while filtered and not filtered[-1].strip():
+    filtered.pop()
+filtered.append('')
+filtered.append(section)
+filtered.append(f'command = \"{python_cmd}\"')
+filtered.append('args = [\"-m\", \"skill_bill.mcp_server\"]')
+filtered.append('')
+os.makedirs(os.path.dirname(path), exist_ok=True)
+open(path, 'w').write('\n'.join(filtered))
+" "$config_path" 2>/dev/null; then
+        ok "  skill-bill MCP server registered ($label)"
+      else
+        warn "  Could not register MCP server ($label)."
+      fi
+    }
+    register_mcp_jsonc_opencode() {
+      local config_path="$1"
+      local label="$2"
+      if python3 -c "
+import json, sys, os
+
+path = sys.argv[1]
+
+def strip_jsonc(text):
+    result = []
+    in_string = False
+    escape = False
+    in_line_comment = False
+    in_block_comment = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ''
+        if in_line_comment:
+            if ch in '\r\n':
+                in_line_comment = False
+                result.append(ch)
+            i += 1
+            continue
+        if in_block_comment:
+            if ch == '*' and nxt == '/':
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if in_string:
+            result.append(ch)
+            if escape:
+                escape = False
+            elif ch == '\\\\':
+                escape = True
+            elif ch == '\"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '\"':
+            in_string = True
+            result.append(ch)
+            i += 1
+            continue
+        if ch == '/' and nxt == '/':
+            in_line_comment = True
+            i += 2
+            continue
+        if ch == '/' and nxt == '*':
+            in_block_comment = True
+            i += 2
+            continue
+        result.append(ch)
+        i += 1
+    return ''.join(result)
+
+def strip_trailing_commas(text):
+    result = []
+    in_string = False
+    escape = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if in_string:
+            result.append(ch)
+            if escape:
+                escape = False
+            elif ch == '\\\\':
+                escape = True
+            elif ch == '\"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '\"':
+            in_string = True
+            result.append(ch)
+            i += 1
+            continue
+        if ch == ',':
+            j = i + 1
+            while j < len(text) and text[j] in ' \t\r\n':
+                j += 1
+            if j < len(text) and text[j] in '}]':
+                i += 1
+                continue
+        result.append(ch)
+        i += 1
+    return ''.join(result)
+
+try:
+    raw = open(path).read()
+except FileNotFoundError:
+    settings = {}
+else:
+    if raw.strip():
+        settings = json.loads(strip_trailing_commas(strip_jsonc(raw)))
+    else:
+        settings = {}
+
+if not isinstance(settings, dict):
+    sys.exit(1)
+
+mcp = settings.get('mcp', {})
+if not isinstance(mcp, dict):
+    mcp = {}
+mcp['skill-bill'] = {
+    'type': 'local',
+    'command': [sys.executable, '-m', 'skill_bill.mcp_server'],
+    'enabled': True,
+}
+settings['mcp'] = mcp
+os.makedirs(os.path.dirname(path), exist_ok=True)
+open(path, 'w').write(json.dumps(settings, indent=2, sort_keys=True) + '\n')
+" "$config_path" 2>/dev/null; then
+        ok "  skill-bill MCP server registered ($label)"
+      else
+        warn "  Could not register MCP server ($label)."
+      fi
+    }
+    for i in "${!AGENT_NAMES[@]}"; do
+      case "${AGENT_NAMES[$i]}" in
+        claude)  register_mcp_json "$HOME/.claude.json" "claude" ;;
+        copilot) register_mcp_json "$HOME/.copilot/mcp-config.json" "copilot" ;;
+        codex)   register_mcp_toml "$HOME/.codex/config.toml" "codex" ;;
+        glm)     register_mcp_json "$HOME/.glm/mcp-config.json" "glm" ;;
+        opencode) register_mcp_jsonc_opencode "$HOME/.config/opencode/opencode.json" "opencode" ;;
+      esac
+    done
+  else
+    warn "Could not install skill-bill CLI (python3 or pip may be unavailable)."
+  fi
+fi
+
+if [[ "$TELEMETRY_LEVEL" != "off" ]]; then
+  if ! python3 -m skill_bill telemetry set-level "$TELEMETRY_LEVEL" --format json >/dev/null 2>&1; then
+    warn "Telemetry setup failed."
+    TELEMETRY_LEVEL="setup_failed"
+  fi
+elif [[ -e "$SKILL_BILL_CONFIG_PATH" || -e "$SKILL_BILL_REVIEW_DB" ]]; then
+  python3 -m skill_bill telemetry disable --format json >/dev/null 2>&1 || warn "Telemetry setup failed."
+fi
 
 printf "${GREEN}━━━ Installation complete ━━━${NC}\n"
 echo ""
 info "Source of truth: $PLUGIN_DIR/skills/"
 info "Platforms:       $(format_platform_list "${SELECTED_PLATFORM_PACKAGES[@]}")"
+info "Command prefix:  ${INSTALL_PREFIX}-"
+if [[ "$TELEMETRY_LEVEL" == "setup_failed" ]]; then
+  info "Telemetry:       setup failed (python3 may be unavailable)"
+else
+  info "Telemetry:       $TELEMETRY_LEVEL"
+fi
 for i in "${!AGENT_NAMES[@]}"; do
   agent="${AGENT_NAMES[$i]}"
   agent_dir="${AGENT_PATHS[$i]}"
@@ -637,5 +1085,11 @@ done
 
 echo ""
 info "Edit skills in: $PLUGIN_DIR/skills/"
+if [[ "$INSTALL_PREFIX" != "bill" ]]; then
+  info "Custom prefixes install generated alias copies. Re-run './install.sh' after editing skills."
+fi
+if [[ "$TELEMETRY_LEVEL" != "off" && "$TELEMETRY_LEVEL" != "setup_failed" ]]; then
+  info "Telemetry uses the default Skill Bill relay automatically. Override it with SKILL_BILL_TELEMETRY_PROXY_URL or ~/.skill-bill/config.json."
+fi
 info "Run './install.sh' again to reinstall with a different agent or platform selection."
 echo ""

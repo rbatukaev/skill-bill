@@ -1,6 +1,6 @@
 ---
 name: bill-boundary-history
-description: Use when updating module/package/area agent/history.md files with reusable, high-signal feature history entries and history hygiene rules.
+description: Use when updating module/package/area agent/history.md files with reusable, high-signal feature history entries and history hygiene rules. Use when user mentions update history, write history entry, boundary history, or record feature history.
 ---
 
 # Boundary History
@@ -54,6 +54,7 @@ Acceptance criteria: <count>/<count> implemented
 ## File Rules
 
 - File path: `<primary-boundary>/agent/history.md`
+- If the file does not exist, create it along with any missing parent directories
 - Newest entry first
 - Max **15 lines** per entry
 - No fixed entry cap

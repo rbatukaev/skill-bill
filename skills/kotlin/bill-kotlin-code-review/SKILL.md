@@ -1,6 +1,6 @@
 ---
 name: bill-kotlin-code-review
-description: Use when conducting a thorough Kotlin PR code review across shared or generic Kotlin code, or when providing the baseline Kotlin review layer for Android/KMP and backend/server reviews. Select shared Kotlin specialists for architecture, correctness, security, performance, and testing. Produces a structured review with risk register and prioritized action items.
+description: Use when conducting a thorough Kotlin PR code review across shared or generic Kotlin code, or when providing the baseline Kotlin review layer for Android/KMP and backend/server reviews. Select shared Kotlin specialists for architecture, correctness, security, performance, and testing. Produces a structured review with risk register and prioritized action items. Use when user mentions Kotlin review, review Kotlin PR, Kotlin code review, or asks to review .kt files.
 ---
 
 # Adaptive Kotlin PR Review
@@ -22,8 +22,12 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 Determine the review scope:
 - Specific files (list paths)
 - Git commits (hashes/range)
-- Working changes (`git diff`)
+- Staged changes (`git diff --cached`; index only)
+- Unstaged changes (`git diff`; working tree only)
+- Combined working tree (`git diff --cached` + `git diff`) only when the caller explicitly asks for all local changes
 - Entire PR
+
+Resolve the scope before reviewing. If the caller asks for staged changes, inspect only the staged diff and keep unstaged edits out of findings except for repo markers needed for classification.
 
 ---
 
@@ -37,11 +41,11 @@ Inspect both the changed files and repo markers (`build.gradle*`, `settings.grad
 - For shared review-orchestration rules, see [review-orchestrator.md](review-orchestrator.md).
 - For agent-specific delegated review execution, see [review-delegation.md](review-delegation.md).
 
-Before classifying, read [stack-routing.md](stack-routing.md). Use it as the source of truth for broad stack signals. This skill owns only the Kotlin-family baseline after a caller decides Kotlin is in scope.
+When the caller already passed the detected stack, skip reading [stack-routing.md](stack-routing.md). For standalone invocation, read it before classifying.
 
-Before selecting specialist review passes or formatting the final report, read [review-orchestrator.md](review-orchestrator.md). Use it as the source of truth for the shared specialist contract, merge rules, common output sections, shared standalone behavior, and review principles used by stack-specific review orchestrators.
+Before selecting specialist review passes or formatting the final report, read [review-orchestrator.md](review-orchestrator.md) unless the caller already passed the shared review contract.
 
-Before delegating specialist review passes, read [review-delegation.md](review-delegation.md). Use it as the source of truth for agent-specific subagent execution.
+Before delegating specialist review passes, read only your current runtime's section in [review-delegation.md](review-delegation.md).
 
 Classify the review as one of:
 - `kotlin`
@@ -95,31 +99,92 @@ Architecture review is relevant for every non-trivial change.
 - Maximum 5 agents
 - Do not run KMP-only specialists or backend-only specialists from this skill; leave those to the platform-specific override that owns them
 
-### Step 5: Run selected specialist reviews
+### Step 5: Choose execution mode
 
-Run one delegated subagent per selected specialist review pass. For supported runtimes, do not inline specialist review passes or collapse multiple specialists into a single combined review. If the current runtime lacks a documented delegation path or cannot start the required subagent(s), stop and report that guaranteed delegated review execution is unavailable.
+Select `inline` or `delegated` using [review-orchestrator.md](review-orchestrator.md).
 
-Each specialist review pass uses:
-- the detected project type
-- the list of changed files
-- instructions to read its own skill file for the review rubric
-- the shared specialist contract in [review-orchestrator.md](review-orchestrator.md)
+- Use `inline` only when the Kotlin review scope stays small and low-risk under the shared execution-mode contract
+- Use `delegated` when the diff is large, the risk profile is high, multiple layers are meaningfully involved, or the safest choice is unclear
+
+### Step 5.5: Scope diff per specialist (delegated mode only)
+
+When execution mode is `delegated`, build a per-specialist file list before launching subagents:
+
+1. Scan each changed file's name and imports for the routing-table signals from Step 3
+2. Map each file to the specialists whose signals it matches
+3. `bill-kotlin-code-review-architecture` always receives all changed files
+4. Every other specialist receives only files matching its routing-table signals
+5. If a non-architecture specialist's scoped file list is empty, drop it from the selected set
+6. After scoping, re-check the minimum-2-specialist requirement; if only architecture remains, add `bill-kotlin-code-review-platform-correctness` with all changed files as the default second
+
+This is a lightweight file-level classification (names + imports), not a full review.
+
+### Step 6: Run selected specialist reviews
+
+If execution mode is `inline`:
+- run the selected specialist review passes sequentially in the current thread
+- read each specialist skill file as the primary rubric for that pass
+- apply the shared specialist contract in [review-orchestrator.md](review-orchestrator.md)
+- keep findings attributed to each specialist before merging and deduplicating them for the final report
+
+If execution mode is `delegated`:
+- run one delegated subagent per selected specialist review pass
+- pass the specialist-scoped file list (from Step 5.5), applicable active learnings, instructions to read the specialist skill file, the parent thread's model when the runtime supports delegated-worker model inheritance, and the shared specialist contract in [specialist-contract.md](specialist-contract.md)
+- if delegated review is required for this scope but the current runtime lacks a documented delegation path or cannot start the required subagent(s), stop and report that delegated review is required for this scope but unavailable on the current runtime
 
 ---
 
-## Review Output Format
+## Review Output
 
-### 1. Classification & Specialist Summary
+### 1. Summary
+
 ```text
-Detected stack: kotlin | kmp-baseline | backend-kotlin-baseline
+Review session ID: <review-session-id>
+Review run ID: <review-run-id>
+Detected review scope: <staged changes / unstaged changes / working tree / commit range / PR diff / files>
+Detected stack: <stack>
 Signals: <markers>
-Specialist reviews: bill-kotlin-code-review-architecture, bill-kotlin-code-review-platform-correctness
-Reason: <why this Kotlin baseline route was selected>
+Execution mode: inline | delegated
+Applied learnings: none | <learning references>
+Specialist reviews: <selected specialists>
+Reason: <why these specialists were selected>
 ```
 
-For the shared risk register, action items, verdict format, merge rules, and review principles, follow [review-orchestrator.md](review-orchestrator.md).
+Every finding in `### 2. Risk Register` must use this exact bullet format (do NOT use markdown tables):
 
-## Implementation Mode Notes
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
 
-- If invoked from `bill-feature-implement`, `bill-feature-verify`, `bill-kmp-code-review`, `bill-backend-kotlin-code-review`, or another orchestration skill, do not pause for user selection. Return prioritized findings so the caller can auto-fix P0/P1 items and decide whether to carry Minor items forward.
+Severity: `Blocker | Major | Minor`. Confidence: `High | Medium | Low`.
+
+### Auto-Import
+
+After producing the final review output, automatically import it into the local telemetry store so the review run and findings are recorded without manual intervention.
+
+Call the `import_review` MCP tool:
+- `review_text`: the complete review output (Section 1 through Section 4)
+
+### Auto-Triage
+
+After the user responds to the review findings and the agent has acted on each decision (applied fixes, skipped findings, etc.), record the triage decisions so the telemetry event fires.
+
+Each finding gets one decision using its position number from the risk register:
+- `fix` — the finding was accepted and the fix was applied
+- `accept` — the finding was accepted but no code change was needed
+- `skip` — the finding was intentionally skipped (append a reason after ` - `)
+- `false_positive` — the finding was incorrect
+
+Call the `triage_findings` MCP tool:
+- `review_run_id`: the review run ID from the review output
+- `decisions`: prefer a single structured selection string that fully resolves the review, e.g. `["fix=[1,3] reject=[2]"]`
+- fallback: explicit numbered decisions still work, e.g. `["1 fix", "2 skip - intentional", "3 accept"]`
+
+Skip auto-triage when the review produced no findings.
+
+For action items, verdict format, merge rules, and review principles, follow [review-orchestrator.md](review-orchestrator.md).
+
+### Implementation Mode Notes
+
+- If invoked from `bill-feature-implement`, `bill-feature-verify`, or another orchestration skill, do not pause for user selection. Return prioritized findings so the caller can auto-fix P0/P1 items and decide whether to carry Minor items forward.
 - After all P0 and P1 items are resolved, run `bill-quality-check` as final verification when the project uses a routed quality-check path and this review is being run standalone.

@@ -1,6 +1,6 @@
 ---
 name: bill-php-code-review-platform-correctness
-description: Use when reviewing behavior correctness, edge cases, retry and idempotency behavior, ordering bugs, and concurrency-sensitive logic in PHP backend/server changes.
+description: Use when reviewing behavior correctness, edge cases, retry and idempotency behavior, ordering bugs, and concurrency-sensitive logic in PHP backend/server changes. Use when user mentions PHP correctness, state transitions, retry logic, idempotency, or ordering bugs in PHP.
 ---
 
 # Platform-Correctness Review Specialist
@@ -14,6 +14,8 @@ Within the PHP package, `platform-correctness` is the package-aligned correctnes
 - Nullability/edge-case failures and crash paths
 - State-machine and contract handling correctness
 - Business-rule drift in conditionals, refactors, and retries
+- Violated invariants, missing guards, and wrong branch selection in business logic
+- Partial-success or alternate-path behavior that no longer matches the declared contract
 - Retry/replay and duplicate-delivery correctness
 
 ## Ignore
@@ -42,6 +44,14 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - State transitions must preserve declared invariants and reject invalid intermediate states
 - Time, timezone, and clock-boundary logic must be explicit where behavior depends on them
 
+### Business Logic / Invariant Checks
+- Guard ordering must preserve business-rule priority and must not make terminal, invalid, or exceptional states reachable as normal success paths
+- Refactors, condition merges, and extracted helpers must not collapse previously distinct business cases into the same outcome unless the contract explicitly changed
+- Absent vs null vs empty vs zero vs defaulted values must preserve their business meaning across validation, mapping, persistence, and response code
+- Multi-step workflows must not persist state that contradicts the reported outcome or skip cleanup that the surrounding contract depends on
+- One-time or prerequisite checks must still run on retry, replay, duplicate delivery, and alternate entry paths unless the contract explicitly permits bypassing them
+- Feature-flag, permission-gated, and role-gated paths must preserve the same core invariants as the primary path unless different behavior is explicitly intended
+
 ### Backend/Server-Specific Rules
 - Message consumers, schedulers, and jobs must be safe under retry/replay; acknowledge or commit only after durable success
 - Concurrent writes need atomic statements, locking, version checks, idempotency keys, or another explicit consistency mechanism
@@ -67,11 +77,18 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 ## Output Rules
 - Report at most 7 findings.
 - Include reproducible failure scenario for Major/Blocker findings.
+- Potential edge-case findings must be grounded in a reachable code path or declared contract. Identify the triggering input, state, or event sequence and the violated invariant or expected behavior.
 - Include `file:line` evidence for each finding.
 - Severity: `Blocker | Major | Minor`
 - Confidence: `High | Medium | Low`
 - Include a minimal, concrete fix.
 
-## Output Table
-| Area | Severity | Confidence | Evidence | Why it matters | Minimal fix |
-|------|----------|------------|----------|----------------|-------------|
+## Output Format
+
+Every finding must use this exact bullet format for downstream tooling:
+
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
+
+Do NOT use markdown tables, numbered lists, or any other format for findings.

@@ -3,6 +3,7 @@ set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$PLUGIN_DIR/skills"
+MANAGED_INSTALL_MARKER=".skill-bill-install"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -109,6 +110,13 @@ remove_skill_target() {
     return
   fi
 
+  if [[ -d "$target" && -f "$target/$MANAGED_INSTALL_MARKER" ]]; then
+    rm -rf "$target"
+    REMOVED_TARGETS+=("$target")
+    ok "  removed $(basename "$target")"
+    return
+  fi
+
   if [[ -e "$target" ]]; then
     SKIPPED_TARGETS+=("$target")
     warn "  skipped $(basename "$target") (not a symlink)"
@@ -130,6 +138,13 @@ remove_from_agent_dir() {
   before_skipped=${#SKIPPED_TARGETS[@]}
 
   info "Checking $label: $target_dir"
+  shopt -s nullglob
+  for managed_target in "$target_dir"/*; do
+    if [[ -d "$managed_target" && -f "$managed_target/$MANAGED_INSTALL_MARKER" ]]; then
+      remove_skill_target "$managed_target"
+    fi
+  done
+  shopt -u nullglob
   for skill_name in "${SKILL_NAMES[@]}"; do
     remove_skill_target "$target_dir/$skill_name"
   done
@@ -142,24 +157,228 @@ remove_from_agent_dir() {
   fi
 }
 
+unregister_mcp_json() {
+  local config_path="$1"
+  local label="$2"
+  if [[ ! -f "$config_path" ]]; then
+    return 0
+  fi
+  if python3 -c "
+import json, sys
+path = sys.argv[1]
+try:
+    settings = json.loads(open(path).read())
+except (FileNotFoundError, json.JSONDecodeError):
+    sys.exit(0)
+servers = settings.get('mcpServers', {})
+if 'skill-bill' not in servers:
+    sys.exit(0)
+del servers['skill-bill']
+if not servers:
+    del settings['mcpServers']
+open(path, 'w').write(json.dumps(settings, indent=2, sort_keys=True) + '\n')
+" "$config_path" 2>/dev/null; then
+    ok "  removed skill-bill MCP server ($label)"
+  fi
+}
+
+unregister_mcp_toml() {
+  local config_path="$1"
+  local label="$2"
+  if [[ ! -f "$config_path" ]]; then
+    return 0
+  fi
+  if python3 -c "
+import sys, os
+path = sys.argv[1]
+if not os.path.exists(path):
+    sys.exit(0)
+lines = open(path).read().splitlines()
+section = '[mcp_servers.skill-bill]'
+filtered = []
+skip = False
+found = False
+for line in lines:
+    if line.strip() == section:
+        skip = True
+        found = True
+        continue
+    if skip and (line.startswith('[') or not line.strip()):
+        if line.startswith('['):
+            skip = False
+            filtered.append(line)
+        continue
+    if not skip:
+        filtered.append(line)
+if not found:
+    sys.exit(0)
+while filtered and not filtered[-1].strip():
+    filtered.pop()
+filtered.append('')
+open(path, 'w').write('\n'.join(filtered))
+" "$config_path" 2>/dev/null; then
+    ok "  removed skill-bill MCP server ($label)"
+  fi
+}
+
 build_skill_names
 build_legacy_skill_names
 
 echo ""
 printf "${CYAN}━━━ Skill Bill Uninstaller ━━━${NC}\n"
 echo ""
-info "Removing Skill Bill symlinks from supported agent paths."
+info "Removing Skill Bill installs from supported agent paths."
 
 remove_from_agent_dir "copilot" "$HOME/.copilot/skills"
 remove_from_agent_dir "claude" "$HOME/.claude/commands"
 remove_from_agent_dir "glm" "$HOME/.glm/commands"
 remove_from_agent_dir "codex" "$HOME/.codex/skills"
 remove_from_agent_dir "codex" "$HOME/.agents/skills"
+remove_from_agent_dir "opencode" "$HOME/.config/opencode/skills"
+
+info "Removing MCP server registrations."
+unregister_mcp_json "$HOME/.claude.json" "claude"
+unregister_mcp_json "$HOME/.copilot/mcp-config.json" "copilot"
+unregister_mcp_toml "$HOME/.codex/config.toml" "codex"
+unregister_mcp_json "$HOME/.glm/mcp-config.json" "glm"
+unregister_mcp_jsonc_opencode() {
+  local config_path="$1"
+  local label="$2"
+  if [[ ! -f "$config_path" ]]; then
+    return 0
+  fi
+  if python3 -c "
+import json, sys, os
+
+path = sys.argv[1]
+
+def strip_jsonc(text):
+    result = []
+    in_string = False
+    escape = False
+    in_line_comment = False
+    in_block_comment = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ''
+        if in_line_comment:
+            if ch in '\r\n':
+                in_line_comment = False
+                result.append(ch)
+            i += 1
+            continue
+        if in_block_comment:
+            if ch == '*' and nxt == '/':
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if in_string:
+            result.append(ch)
+            if escape:
+                escape = False
+            elif ch == '\\\\':
+                escape = True
+            elif ch == '\"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '\"':
+            in_string = True
+            result.append(ch)
+            i += 1
+            continue
+        if ch == '/' and nxt == '/':
+            in_line_comment = True
+            i += 2
+            continue
+        if ch == '/' and nxt == '*':
+            in_block_comment = True
+            i += 2
+            continue
+        result.append(ch)
+        i += 1
+    return ''.join(result)
+
+def strip_trailing_commas(text):
+    result = []
+    in_string = False
+    escape = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if in_string:
+            result.append(ch)
+            if escape:
+                escape = False
+            elif ch == '\\\\':
+                escape = True
+            elif ch == '\"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '\"':
+            in_string = True
+            result.append(ch)
+            i += 1
+            continue
+        if ch == ',':
+            j = i + 1
+            while j < len(text) and text[j] in ' \t\r\n':
+                j += 1
+            if j < len(text) and text[j] in '}]':
+                i += 1
+                continue
+        result.append(ch)
+        i += 1
+    return ''.join(result)
+
+try:
+    raw = open(path).read()
+except FileNotFoundError:
+    sys.exit(0)
+
+if raw.strip():
+    try:
+        settings = json.loads(strip_trailing_commas(strip_jsonc(raw)))
+    except json.JSONDecodeError:
+        sys.exit(0)
+else:
+    settings = {}
+
+if not isinstance(settings, dict):
+    sys.exit(0)
+
+servers = settings.get('mcp', {})
+if not isinstance(servers, dict) or 'skill-bill' not in servers:
+    sys.exit(0)
+
+del servers['skill-bill']
+if servers:
+    settings['mcp'] = servers
+elif 'mcp' in settings:
+    del settings['mcp']
+
+open(path, 'w').write(json.dumps(settings, indent=2, sort_keys=True) + '\n')
+" "$config_path" 2>/dev/null; then
+    ok "  removed skill-bill MCP server ($label)"
+  fi
+}
+unregister_mcp_jsonc_opencode "$HOME/.config/opencode/opencode.json" "opencode"
+
+SKILL_BILL_STATE_DIR="${HOME}/.skill-bill"
+if [[ -d "$SKILL_BILL_STATE_DIR" ]]; then
+  info "Removing skill-bill state directory."
+  rm -rf "$SKILL_BILL_STATE_DIR"
+  ok "  removed $SKILL_BILL_STATE_DIR"
+fi
 
 echo ""
 printf "${GREEN}━━━ Uninstall complete ━━━${NC}\n"
 echo ""
-info "Removed symlinks: ${#REMOVED_TARGETS[@]}"
+info "Removed installs: ${#REMOVED_TARGETS[@]}"
 if [[ ${#SKIPPED_TARGETS[@]} -gt 0 ]]; then
   warn "Skipped non-symlink paths: ${#SKIPPED_TARGETS[@]}"
 fi

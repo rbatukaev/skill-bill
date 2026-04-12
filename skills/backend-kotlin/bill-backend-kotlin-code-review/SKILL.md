@@ -1,6 +1,6 @@
 ---
 name: bill-backend-kotlin-code-review
-description: Use when conducting a thorough Kotlin backend/server PR code review. Preserve backend review depth by running bill-kotlin-code-review as the baseline Kotlin review layer, then add backend-specific specialists such as API contracts, persistence, and reliability. Produces a structured review with risk register and prioritized action items.
+description: Use when conducting a thorough Kotlin backend/server PR code review. Preserve backend review depth by running bill-kotlin-code-review as the baseline Kotlin review layer, then add backend-specific specialists such as API contracts, persistence, and reliability. Produces a structured review with risk register and prioritized action items. Use when user mentions backend Kotlin review, server review, Ktor review, Spring review, or backend PR review.
 ---
 
 # Backend Kotlin PR Review
@@ -22,8 +22,12 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 Determine the review scope:
 - Specific files (list paths)
 - Git commits (hashes/range)
-- Working changes (`git diff`)
+- Staged changes (`git diff --cached`; index only)
+- Unstaged changes (`git diff`; working tree only)
+- Combined working tree (`git diff --cached` + `git diff`) only when the caller explicitly asks for all local changes
 - Entire PR
+
+Resolve the scope before reviewing. If the caller asks for staged changes, inspect only the staged diff and keep unstaged edits out of findings except for repo markers needed for classification.
 
 ---
 
@@ -37,11 +41,11 @@ Inspect both the changed files and repo markers (`build.gradle*`, `settings.grad
 - For shared review-orchestration rules, see [review-orchestrator.md](review-orchestrator.md).
 - For agent-specific delegated review execution, see [review-delegation.md](review-delegation.md).
 
-Before classifying, read [stack-routing.md](stack-routing.md). Use it as the source of truth for broad stack signals. This skill owns only the backend/server override that happens after Kotlin is already in scope.
+When the caller already passed the detected stack, skip reading [stack-routing.md](stack-routing.md). For standalone invocation, read it before classifying.
 
-Before selecting backend specialist review passes or formatting the final report, read [review-orchestrator.md](review-orchestrator.md). Use it as the source of truth for the shared specialist contract, merge rules, common output sections, shared standalone behavior, and review principles used by stack-specific review orchestrators.
+Before selecting backend specialist review passes or formatting the final report, read [review-orchestrator.md](review-orchestrator.md) unless the caller already passed the shared review contract.
 
-Before delegating baseline or backend specialist review passes, read [review-delegation.md](review-delegation.md). Use it as the source of truth for agent-specific subagent execution.
+Before delegating baseline or backend specialist review passes, read only your current runtime's section in [review-delegation.md](review-delegation.md).
 
 Classify the review as one of:
 - `backend-kotlin`
@@ -68,18 +72,29 @@ Classify the review as one of:
 
 ## Layered Review Plan
 
-### Step 1: Run `bill-kotlin-code-review` as the baseline review
+### Step 1: Choose execution mode
 
-Run `bill-kotlin-code-review` against the same scope first as a delegated subagent. That skill owns:
+Select `inline` or `delegated` using [review-orchestrator.md](review-orchestrator.md).
+
+- Use `inline` only when the backend review scope stays small and low-risk under the shared execution-mode contract
+- Use `delegated` when the diff is large, backend-only specialist risk is present, multiple layers are meaningfully involved, or the safest choice is unclear
+
+### Step 2: Run `bill-kotlin-code-review` as the baseline review
+
+Run `bill-kotlin-code-review` against the same scope first. That skill owns:
 - shared Kotlin architecture, correctness, security, performance, and testing review
 - the baseline Kotlin findings that every backend/server review should inherit
 
-When invoking it from this skill:
+When invoking it from this skill in either execution mode:
 - tell it that backend/server scope is valid and should be treated as `backend-kotlin-baseline`
 - tell it to keep backend-only review concerns out of scope
 - pass the same diff source, changed files, and relevant override guidance
 
-### Step 2: Analyze the diff and select backend-specific specialist reviews
+If execution mode is `inline`, apply `bill-kotlin-code-review` inline in the current thread.
+
+If execution mode is `delegated`, run `bill-kotlin-code-review` as a delegated subagent and use the runtime-specific delegation contract from [review-delegation.md](review-delegation.md).
+
+### Step 3: Analyze the diff and select backend-specific specialist reviews
 
 | Signal in the diff | Specialist review to run |
 |---------------------|--------------------------|
@@ -87,34 +102,84 @@ When invoking it from this skill:
 | Repositories/DAOs, SQL, ORM mappings, transactions, migrations, optimistic locking, upserts, bulk writes | `bill-backend-kotlin-code-review-persistence` |
 | Timeouts, retries, circuit breakers, queues, schedulers, idempotency, caching, metrics, tracing, startup/shutdown lifecycle | `bill-backend-kotlin-code-review-reliability` |
 
-### Step 3: Run backend specialist reviews
+### Step 3.5: Scope diff per backend specialist (delegated mode only)
 
-Run one delegated subagent per selected backend specialist review pass. For supported runtimes, do not inline backend specialist review passes or collapse them into the parent review. If the current runtime lacks a documented delegation path or cannot start the required subagent(s), stop and report that guaranteed delegated review execution is unavailable.
+When execution mode is `delegated`, build a per-specialist file list before launching backend specialist subagents:
 
-Each backend specialist review pass uses:
-- the detected project type
-- the list of changed files
-- instructions to read its own skill file for the review rubric
-- the shared specialist contract in [review-orchestrator.md](review-orchestrator.md)
+1. Scan each changed file's name and imports for the backend routing-table signals from Step 3
+2. Map each file to the backend specialists whose signals it matches
+3. If a specialist's scoped file list is empty, drop it from the selected set
+
+This is a lightweight file-level classification (names + imports), not a full review.
+
+### Step 4: Run backend specialist reviews
+
+If execution mode is `inline`:
+- run the selected backend specialist review passes sequentially in the current thread
+- read each backend specialist skill file as the primary rubric for that pass
+- apply the shared specialist contract in [review-orchestrator.md](review-orchestrator.md)
+- keep findings attributed to each layer before merging and deduplicating them for the final report
+
+If execution mode is `delegated`:
+- run one delegated subagent per selected backend specialist review pass
+- pass the specialist-scoped file list (from Step 3.5), applicable active learnings, instructions to read the backend specialist skill file, the parent thread's model when the runtime supports delegated-worker model inheritance, and the shared specialist contract in [specialist-contract.md](specialist-contract.md)
+- if delegated review is required for this scope but the current runtime lacks a documented delegation path or cannot start the required subagent(s), stop and report that delegated review is required for this scope but unavailable on the current runtime
 
 If no backend-only triggers match but backend/server signals are clearly present, keep the baseline Kotlin review output and state that no extra backend-specific specialist was needed for this scope.
 
 ---
 
-## Review Output Format
+## Review Output
 
-### 1. Classification & Layer Summary
+### 1. Summary
+
 ```text
-Detected stack: backend-kotlin | mixed-backend-kotlin
-Signals: application.yml, @RestController, Exposed
-Baseline review: bill-kotlin-code-review
-Backend specialist reviews: bill-backend-kotlin-code-review-api-contracts
-Reason: backend/server signals were high-confidence, so the backend layer was added on top of the baseline Kotlin review
+Review session ID: <review-session-id>
+Review run ID: <review-run-id>
+Detected review scope: <staged changes / unstaged changes / working tree / commit range / PR diff / files>
+Detected stack: <stack>
+Signals: <markers>
+Execution mode: inline | delegated
+Applied learnings: none | <learning references>
+Specialist reviews: <selected specialists>
+Reason: <why these specialists were selected>
 ```
 
-For the shared risk register, action items, verdict format, merge rules, and review principles, follow [review-orchestrator.md](review-orchestrator.md).
+Every finding in `### 2. Risk Register` must use this exact bullet format (do NOT use markdown tables):
 
-## Implementation Mode Notes
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
 
-- If invoked from `bill-feature-implement`, `bill-feature-verify`, `bill-kmp-code-review`, or another orchestration skill, do not pause for user selection. Return prioritized findings so the caller can auto-fix P0/P1 items and decide whether to carry Minor items forward.
+Severity: `Blocker | Major | Minor`. Confidence: `High | Medium | Low`.
+
+### Auto-Import
+
+After producing the final review output, automatically import it into the local telemetry store so the review run and findings are recorded without manual intervention.
+
+Call the `import_review` MCP tool:
+- `review_text`: the complete review output (Section 1 through Section 4)
+
+### Auto-Triage
+
+After the user responds to the review findings and the agent has acted on each decision (applied fixes, skipped findings, etc.), record the triage decisions so the telemetry event fires.
+
+Each finding gets one decision using its position number from the risk register:
+- `fix` — the finding was accepted and the fix was applied
+- `accept` — the finding was accepted but no code change was needed
+- `skip` — the finding was intentionally skipped (append a reason after ` - `)
+- `false_positive` — the finding was incorrect
+
+Call the `triage_findings` MCP tool:
+- `review_run_id`: the review run ID from the review output
+- `decisions`: prefer a single structured selection string that fully resolves the review, e.g. `["fix=[1,3] reject=[2]"]`
+- fallback: explicit numbered decisions still work, e.g. `["1 fix", "2 skip - intentional", "3 accept"]`
+
+Skip auto-triage when the review produced no findings.
+
+For action items, verdict format, merge rules, and review principles, follow [review-orchestrator.md](review-orchestrator.md).
+
+### Implementation Mode Notes
+
+- If invoked from `bill-feature-implement`, `bill-feature-verify`, or another orchestration skill, do not pause for user selection. Return prioritized findings so the caller can auto-fix P0/P1 items and decide whether to carry Minor items forward.
 - After all P0 and P1 items are resolved, run `bill-quality-check` as final verification when the project uses a routed quality-check path and this review is being run standalone.

@@ -1,6 +1,6 @@
 ---
 name: bill-php-code-review-api-contracts
-description: Use when reviewing PHP backend/server API boundaries including request validation, serialization, HTTP or RPC contracts, status-code mapping, and backward compatibility.
+description: Use when reviewing PHP backend/server API boundaries including request validation, serialization, HTTP or RPC contracts, status-code mapping, and backward compatibility. Use when user mentions API contract, Laravel routes, controllers, request validation, or response serialization in PHP.
 ---
 
 # Backend API & Contract Review Specialist
@@ -53,6 +53,12 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - Confidence: `High | Medium | Low`
 - Include a minimal, concrete fix.
 
-## Output Table
-| Area | Severity | Confidence | Evidence | Why it matters | Minimal fix |
-|------|----------|------------|----------|----------------|-------------|
+## Output Format
+
+Every finding must use this exact bullet format for downstream tooling:
+
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
+
+Do NOT use markdown tables, numbered lists, or any other format for findings.

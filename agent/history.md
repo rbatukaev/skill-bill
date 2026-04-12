@@ -1,0 +1,70 @@
+## [2026-04-11] opencode-agent-support
+Areas: install.sh, uninstall.sh, README, skills/base/bill-new-skill-all-agents, tests
+- Added OpenCode as a first-class installer target with skills installed into its global skills directory and included in supported-agent docs and skill-sync guidance.
+- Registered Skill Bill in the OpenCode global config using the `mcp.skill-bill` local-command shape instead of the existing `mcpServers`/TOML patterns used by other agents.
+- Added JSONC-aware OpenCode config handling (comments and trailing commas) so MCP registration/removal stays compatible with real user configs. reusable
+- Extended installer and uninstaller regression coverage to lock the OpenCode path and MCP contract in place.
+Feature flag: N/A
+Acceptance criteria: 6/6 implemented
+
+## [2026-04-05] mcp-server
+Areas: skill_bill/, skills/base/bill-code-review, install.sh, pyproject.toml, tests/
+- Added MCP server (FastMCP/stdio) exposing 5 tools: import_review, triage_findings, resolve_learnings, review_stats, doctor
+- Tools wrap existing skill_bill.* module functions directly — zero logic duplication (reusable)
+- bill-code-review SKILL.md Auto-Import/Auto-Triage now prefer MCP tools with CLI fallback
+- .mcp.json in repo root for Claude Code auto-discovery; install.sh confirms registration
+- pyproject.toml adds `mcp` as first external dependency
+Feature flag: N/A
+Acceptance criteria: 10/10 implemented
+
+## [2026-04-04] runtime-package-migration
+Areas: skill_bill/, scripts/, skills/base/bill-code-review, install.sh, .github/workflows/, tests/
+- Migrated monolithic scripts/review_metrics.py into skill_bill/ Python package with 10 domain modules (constants, db, config, review, triage, learnings, stats, sync, output, cli)
+- CLI entrypoint `skill-bill` replaces direct `python3 scripts/review_metrics.py` invocations everywhere
+- bill-code-review Auto-Import now calls `skill-bill import-review` instead of resolving script paths (reusable)
+- install.sh telemetry setup uses `python3 -m skill_bill` for enable/disable
+- pyproject.toml with zero external dependencies; CI installs via `pip install -e .`
+- All behavior preserved exactly; pure structural migration
+Feature flag: N/A
+Acceptance criteria: 13/13 implemented
+
+## [2026-04-02] review-acceptance-metrics
+Areas: repo-root governance, orchestration/review-orchestrator, orchestration/review-delegation, skills/base/bill-code-review, stack review skills, scripts, tests, README
+- Added a local-first review telemetry contract with `review_run_id` output and machine-readable `finding_id` risk-register lines for code-review flows.
+- Added `scripts/review_metrics.py` as a reusable SQLite helper for importing review outputs, recording explicit accepted/dismissed/fix_requested events, and reporting stats.
+- Added governance coverage so review contracts now enforce review-run id generation and delegated review-run id reuse across routed reviews.
+- Documented the local telemetry workflow and default database location in README.
+Feature flag: N/A
+Acceptance criteria: 6/6 implemented
+
+## [2026-04-03] review-acceptance-metrics phase 2
+Areas: scripts/review_metrics.py, README, tests
+- Added a number-based triage workflow so users can respond with `1 fix` or `2 skip - intentional` instead of raw finding ids.
+- Added a separate local learnings layer with list/show/edit/disable/delete management commands so reusable review preferences stay user-reviewable and removable.
+- Kept learnings separate from raw feedback event history so preferences can be changed or wiped without losing the telemetry baseline.
+Feature flag: N/A
+Acceptance criteria: 6/6 implemented
+
+## [2026-04-03] review-learnings-application
+Areas: scripts/review_metrics.py, orchestration/review-orchestrator, orchestration/review-delegation, skills/base/bill-code-review, stack review skills, README, tests
+- Added scope-aware learnings resolution so active learnings can be resolved for `global`, `repo`, and `skill` review contexts with deterministic precedence. reusable
+- Updated shared review contracts so routed and delegated reviews treat learnings as explicit context, pass them through delegation, and surface `Applied learnings` in the summary instead of hiding the behavior.
+- Added validator and regression coverage so future review-skill edits cannot drop the auditable learnings contract silently.
+Feature flag: N/A
+Acceptance criteria: 5/5 implemented
+
+## [2026-04-03] review-telemetry-remote-sync
+Areas: scripts/review_metrics.py, install.sh, README, tests
+- Added a local telemetry outbox plus optional remote batch sync so SQLite stays canonical while cross-install product analytics can be reported later.
+- Added default-on installer telemetry preference handling and helper commands to inspect status, enable or disable sync, and flush pending events manually.
+- Kept the remote payload privacy-scoped by excluding repo identity and raw review text while still reporting skill, feedback, and applied-learning metadata.
+Feature flag: N/A
+Acceptance criteria: 5/5 implemented
+
+## [2026-04-03] review-telemetry-proxy-sync
+Areas: scripts/review_metrics.py, install.sh, docs/cloudflare-telemetry-proxy, README, tests
+- Added proxy-aware telemetry transport so installs can keep the same local outbox flow while sending batches to a configured relay.
+- Added a Cloudflare Worker example that accepts Skill Bill telemetry batches, validates them lightly, and forwards them to the example backend with the credential stored server-side.
+- Kept the telemetry privacy boundary: no repo identity leaves the client. Learning content is included in the `skillbill_review_finished` event.
+Feature flag: N/A
+Acceptance criteria: 6/6 implemented

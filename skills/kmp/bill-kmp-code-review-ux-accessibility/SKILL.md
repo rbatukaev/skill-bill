@@ -1,6 +1,6 @@
 ---
 name: bill-kmp-code-review-ux-accessibility
-description: Use when reviewing UX correctness and accessibility risks, delegating UI-framework-heavy checks to bill-kmp-code-review-ui.
+description: Use when reviewing UX correctness and accessibility risks, delegating UI-framework-heavy checks to bill-kmp-code-review-ui. Use when user mentions UX review, accessibility, content description, screen reader, or localization review.
 ---
 
 # UX & Accessibility Review Specialist
@@ -52,6 +52,12 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - Confidence: `High | Medium | Low`
 - Include a minimal, concrete fix.
 
-## Output Table
-| Area | Severity | Confidence | Evidence | Why it matters | Minimal fix |
-|------|----------|------------|----------|----------------|-------------|
+## Output Format
+
+Every finding must use this exact bullet format for downstream tooling:
+
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
+
+Do NOT use markdown tables, numbered lists, or any other format for findings.

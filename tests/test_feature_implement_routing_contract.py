@@ -9,8 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from skill_repo_contracts import (  # noqa: E402
+  APPLIED_LEARNINGS_PLACEHOLDER,
   PORTABLE_REVIEW_SKILLS,
   REVIEW_DELEGATION_REQUIRED_SECTIONS,
+  REVIEW_RUN_ID_FORMAT,
+  REVIEW_RUN_ID_PLACEHOLDER,
+  REVIEW_SESSION_ID_FORMAT,
+  REVIEW_SESSION_ID_PLACEHOLDER,
+  RISK_REGISTER_FINDING_FORMAT,
   RUNTIME_SUPPORTING_FILES,
   supporting_file_targets,
   skills_requiring_supporting_file,
@@ -21,9 +27,12 @@ def read(relative_path: str) -> str:
   return (ROOT / relative_path).read_text(encoding="utf-8")
 
 
-FEATURE_IMPLEMENT = read("skills/base/bill-feature-implement/SKILL.md")
+FEATURE_IMPLEMENT = read("skills/base/bill-feature-implement/SKILL.md") + "\n" + read("skills/base/bill-feature-implement/reference.md")
 CODE_REVIEW = read("skills/base/bill-code-review/SKILL.md")
 QUALITY_CHECK = read("skills/base/bill-quality-check/SKILL.md")
+PR_DESCRIPTION = read("skills/base/bill-pr-description/SKILL.md")
+AGENT_CONFIG_CODE_REVIEW = read("skills/agent-config/bill-agent-config-code-review/SKILL.md")
+AGENT_CONFIG_QUALITY_CHECK = read("skills/agent-config/bill-agent-config-quality-check/SKILL.md")
 KOTLIN_CODE_REVIEW = read("skills/kotlin/bill-kotlin-code-review/SKILL.md")
 BACKEND_KOTLIN_CODE_REVIEW = read("skills/backend-kotlin/bill-backend-kotlin-code-review/SKILL.md")
 KMP_CODE_REVIEW = read("skills/kmp/bill-kmp-code-review/SKILL.md")
@@ -33,6 +42,7 @@ STACK_ROUTING_PLAYBOOK = read("orchestration/stack-routing/PLAYBOOK.md")
 REVIEW_ORCHESTRATOR_PLAYBOOK = read("orchestration/review-orchestrator/PLAYBOOK.md")
 REVIEW_DELEGATION_PLAYBOOK = read("orchestration/review-delegation/PLAYBOOK.md")
 PORTABLE_REVIEW_SKILL_TEXTS = {
+  "bill-agent-config-code-review": AGENT_CONFIG_CODE_REVIEW,
   "bill-kotlin-code-review": KOTLIN_CODE_REVIEW,
   "bill-backend-kotlin-code-review": BACKEND_KOTLIN_CODE_REVIEW,
   "bill-kmp-code-review": KMP_CODE_REVIEW,
@@ -80,14 +90,42 @@ class FeatureImplementRoutingContractTest(unittest.TestCase):
     self.assertIn("Do not reference this repo-relative path directly", STACK_ROUTING_PLAYBOOK)
     self.assertIn("Do not reference this repo-relative path directly", REVIEW_ORCHESTRATOR_PLAYBOOK)
     self.assertIn("Do not reference this repo-relative path directly", REVIEW_DELEGATION_PLAYBOOK)
+    self.assertIn("Supported scope labels are `staged changes`, `unstaged changes`, `working tree`, `commit range`, `PR diff`, and `files`", REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn("When the caller asks for staged changes, inspect only the staged/index diff", REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn("Detected review scope: <staged changes / unstaged changes / working tree / commit range / PR diff / files>", REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn(REVIEW_SESSION_ID_PLACEHOLDER, REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn(REVIEW_SESSION_ID_FORMAT, REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn(REVIEW_RUN_ID_PLACEHOLDER, REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn(REVIEW_RUN_ID_FORMAT, REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn(APPLIED_LEARNINGS_PLACEHOLDER, REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn("Prefer more specific scopes in this order: `skill`, `repo`, `global`", REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn("reuse it instead of generating a new one", REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn(RISK_REGISTER_FINDING_FORMAT, REVIEW_ORCHESTRATOR_PLAYBOOK)
+    self.assertIn("The parent review owns only the delegated workers it launched itself.", REVIEW_DELEGATION_PLAYBOOK)
+    self.assertIn("Track delegated workers by the ids returned when they are launched.", REVIEW_DELEGATION_PLAYBOOK)
+    self.assertIn("the current `review_session_id` and `review_run_id` when they already exist", REVIEW_DELEGATION_PLAYBOOK)
+    self.assertIn("any applicable active learnings when they are available", REVIEW_DELEGATION_PLAYBOOK)
+    self.assertIn("Do not use `list_agents` to discover delegated workers during normal review execution.", REVIEW_DELEGATION_PLAYBOOK)
     for section in REVIEW_DELEGATION_REQUIRED_SECTIONS:
       self.assertIn(section, REVIEW_DELEGATION_PLAYBOOK)
 
   def test_feature_implement_invokes_shared_review_and_validation_routers(self) -> None:
-    self.assertIn("Run the `bill-code-review` skill", FEATURE_IMPLEMENT)
-    self.assertIn("run `bill-quality-check`", FEATURE_IMPLEMENT)
+    self.assertIn("Run `bill-code-review`", FEATURE_IMPLEMENT)
+    self.assertIn("Run `bill-quality-check`", FEATURE_IMPLEMENT)
     self.assertIn("`bill-code-review`", FEATURE_IMPLEMENT)
     self.assertIn("`bill-quality-check`", FEATURE_IMPLEMENT)
+
+  def test_pr_description_prefers_repo_native_templates(self) -> None:
+    self.assertIn("## Repo-Native PR Template Search (mandatory)", PR_DESCRIPTION)
+    self.assertIn("`.github/pull_request_template.md`", PR_DESCRIPTION)
+    self.assertIn("`.github/PULL_REQUEST_TEMPLATE.md`", PR_DESCRIPTION)
+    self.assertIn("`pull_request_template.md`", PR_DESCRIPTION)
+    self.assertIn("`PULL_REQUEST_TEMPLATE.md`", PR_DESCRIPTION)
+    self.assertIn("`.github/pull_request_template/*.md`", PR_DESCRIPTION)
+    self.assertIn("`.github/PULL_REQUEST_TEMPLATE/*.md`", PR_DESCRIPTION)
+    self.assertIn("When multiple templates are found and there is no obvious default, ask the user which one to use.", PR_DESCRIPTION)
+    self.assertIn("Only when NO repo-native template is found at any of the above locations, fall back to the built-in Skill Bill template in the section below.", PR_DESCRIPTION)
+    self.assertIn("Always search for a repo-native PR template first", PR_DESCRIPTION)
 
   def test_kotlin_context_routes_to_kotlin_review_and_quality_check(self) -> None:
     self.assertIn(
@@ -98,6 +136,20 @@ class FeatureImplementRoutingContractTest(unittest.TestCase):
       "- If `kotlin` signals dominate, delegate to the canonical `bill-kotlin-quality-check` skill when it exists.",
       QUALITY_CHECK,
     )
+
+  def test_agent_config_context_routes_to_agent_config_review_and_quality_check(self) -> None:
+    self.assertIn(
+      "- If `agent-config` signals dominate, delegate to `bill-agent-config-code-review`.",
+      CODE_REVIEW,
+    )
+    self.assertIn(
+      "- If `agent-config` signals dominate, delegate to the canonical `bill-agent-config-quality-check` skill when it exists.",
+      QUALITY_CHECK,
+    )
+    self.assertIn("[stack-routing.md](stack-routing.md)", AGENT_CONFIG_CODE_REVIEW)
+    self.assertIn("[review-orchestrator.md](review-orchestrator.md)", AGENT_CONFIG_CODE_REVIEW)
+    self.assertIn("[review-delegation.md](review-delegation.md)", AGENT_CONFIG_CODE_REVIEW)
+    self.assertIn("Typical Commands In This Repo Type:", AGENT_CONFIG_QUALITY_CHECK)
 
   def test_backend_kotlin_context_routes_to_backend_review_and_current_quality_check(self) -> None:
     self.assertIn(
@@ -113,7 +165,7 @@ class FeatureImplementRoutingContractTest(unittest.TestCase):
       QUALITY_CHECK,
     )
     self.assertIn(
-      "### Step 1: Run `bill-kotlin-code-review` as the baseline review",
+      "Step 2: Run `bill-kotlin-code-review` as the baseline review",
       BACKEND_KOTLIN_CODE_REVIEW,
     )
 
@@ -187,7 +239,34 @@ class FeatureImplementRoutingContractTest(unittest.TestCase):
       KOTLIN_CODE_REVIEW,
     )
 
-  def test_stack_review_skills_require_delegated_subagent_execution(self) -> None:
+  def test_router_uses_adaptive_execution_contract(self) -> None:
+    self.assertIn(
+      "Detected review scope: <staged changes / unstaged changes / working tree / commit range / PR diff / files>",
+      CODE_REVIEW,
+    )
+    self.assertIn(REVIEW_SESSION_ID_PLACEHOLDER, CODE_REVIEW)
+    self.assertIn(REVIEW_SESSION_ID_FORMAT, CODE_REVIEW)
+    self.assertIn(REVIEW_RUN_ID_PLACEHOLDER, CODE_REVIEW)
+    self.assertIn(REVIEW_RUN_ID_FORMAT, CODE_REVIEW)
+    self.assertIn(APPLIED_LEARNINGS_PLACEHOLDER, CODE_REVIEW)
+    self.assertIn("the applicable active learnings for the current repo and routed review skill when they are available", CODE_REVIEW)
+    self.assertIn("Execution mode: inline | delegated", CODE_REVIEW)
+    self.assertIn("the current `review_session_id` when one already exists", CODE_REVIEW)
+    self.assertIn("the current `review_run_id` when one already exists", CODE_REVIEW)
+    self.assertIn(
+      "If the caller asks for staged changes, route and review only the staged diff",
+      CODE_REVIEW,
+    )
+    self.assertIn(
+      "If the routed skill selects `inline`, run it inline in the current thread instead of spawning an extra routed worker just for indirection",
+      CODE_REVIEW,
+    )
+    self.assertIn(
+      "If delegated review is required for the current scope and the runtime lacks a documented delegation path or cannot start the required worker(s), stop and report that delegated review is required for this scope but unavailable on the current runtime",
+      CODE_REVIEW,
+    )
+
+  def test_stack_review_skills_define_adaptive_execution_modes(self) -> None:
     forbidden_phrases = (
       "`task`",
       "spawn_agent",
@@ -202,8 +281,32 @@ class FeatureImplementRoutingContractTest(unittest.TestCase):
         self.assertIn("specialist review", skill_text)
         self.assertIn("[review-orchestrator.md](review-orchestrator.md)", skill_text)
         self.assertIn("[review-delegation.md](review-delegation.md)", skill_text)
-        self.assertIn("delegated subagent", skill_text)
-        self.assertIn("guaranteed delegated review execution is unavailable", skill_text)
+        self.assertIn(
+          "Staged changes (`git diff --cached`; index only)",
+          skill_text,
+        )
+        self.assertIn(
+          "Resolve the scope before reviewing. If the caller asks for staged changes, inspect only the staged diff",
+          skill_text,
+        )
+        self.assertIn(
+          "Detected review scope: <staged changes / unstaged changes / working tree / commit range / PR diff / files>",
+          skill_text,
+        )
+        self.assertIn(REVIEW_RUN_ID_PLACEHOLDER, skill_text)
+        self.assertIn(APPLIED_LEARNINGS_PLACEHOLDER, skill_text)
+        self.assertIn("## Auto-Import", skill_text)
+        self.assertIn("Call the `import_review` MCP tool:", skill_text)
+        self.assertIn("## Auto-Triage", skill_text)
+        self.assertIn("Call the `triage_findings` MCP tool:", skill_text)
+        self.assertIn("Skip auto-triage when the review produced no findings.", skill_text)
+        self.assertIn("Execution mode: inline | delegated", skill_text)
+        self.assertIn("Use `inline` only", skill_text)
+        self.assertIn("If execution mode is `delegated`", skill_text)
+        self.assertIn(
+          "delegated review is required for this scope but unavailable on the current runtime",
+          skill_text,
+        )
         self.assertNotIn(".bill-shared/orchestration/", skill_text)
         self.assertNotIn("orchestration/stack-routing/PLAYBOOK.md", skill_text)
         self.assertNotIn("orchestration/review-orchestrator/PLAYBOOK.md", skill_text)

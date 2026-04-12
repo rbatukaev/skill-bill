@@ -1,6 +1,6 @@
 ---
 name: bill-go-code-review-persistence
-description: Use when reviewing Go backend/service persistence risks including transaction boundaries, query correctness, migration safety, concurrency, and data-consistency behavior.
+description: Use when reviewing Go backend/service persistence risks including transaction boundaries, query correctness, migration safety, concurrency, and data-consistency behavior. Use when user mentions database review, SQL, transaction, migration, GORM, sqlx, or query correctness in Go.
 ---
 
 # Backend Persistence Review Specialist
@@ -61,6 +61,12 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - Confidence: `High | Medium | Low`
 - Include a minimal, concrete fix.
 
-## Output Table
-| Area | Severity | Confidence | Evidence | Why it matters | Minimal fix |
-|------|----------|------------|----------|----------------|-------------|
+## Output Format
+
+Every finding must use this exact bullet format for downstream tooling:
+
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
+
+Do NOT use markdown tables, numbered lists, or any other format for findings.

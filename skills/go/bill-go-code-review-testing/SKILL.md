@@ -1,6 +1,6 @@
 ---
 name: bill-go-code-review-testing
-description: Use when reviewing test coverage quality, real test value, regression protection, and test reliability risks in Go backend/service code.
+description: Use when reviewing test coverage quality, real test value, regression protection, and test reliability risks in Go backend/service code. Use when user mentions test quality, t.Run, t.Parallel, fuzz test, flaky test, or test coverage in Go.
 ---
 
 # Testing Review Specialist
@@ -79,6 +79,12 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - Confidence: `High | Medium | Low`
 - Include a minimal, concrete fix, which may be to rewrite or delete the test and replace it with a behavior-focused one.
 
-## Output Table
-| Area | Severity | Confidence | Evidence | Why it matters | Minimal fix |
-|------|----------|------------|----------|----------------|-------------|
+## Output Format
+
+Every finding must use this exact bullet format for downstream tooling:
+
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
+
+Do NOT use markdown tables, numbered lists, or any other format for findings.

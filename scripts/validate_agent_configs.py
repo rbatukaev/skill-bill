@@ -8,9 +8,15 @@ import re
 import sys
 
 from skill_repo_contracts import (
+  APPLIED_LEARNINGS_PLACEHOLDER,
   ORCHESTRATION_PLAYBOOKS,
   PORTABLE_REVIEW_SKILLS,
   REVIEW_DELEGATION_REQUIRED_SECTIONS,
+  REVIEW_RUN_ID_FORMAT,
+  REVIEW_RUN_ID_PLACEHOLDER,
+  REVIEW_SESSION_ID_FORMAT,
+  REVIEW_SESSION_ID_PLACEHOLDER,
+  RISK_REGISTER_FINDING_FORMAT,
   RUNTIME_SUPPORTING_FILES,
 )
 
@@ -26,7 +32,7 @@ SKILL_OVERRIDE_FILE = ".agents/skill-overrides.md"
 SKILL_OVERRIDE_EXAMPLE_FILE = ".agents/skill-overrides.example.md"
 SKILL_OVERRIDE_TITLE = "# Skill Overrides"
 SKILL_OVERRIDE_SECTION_PATTERN = re.compile(r"^## (bill-[a-z0-9-]+)$")
-ALLOWED_PACKAGES = ("base", "kotlin", "kmp", "backend-kotlin", "php", "go")
+ALLOWED_PACKAGES = ("base", "agent-config", "kotlin", "kmp", "backend-kotlin", "php", "go")
 APPROVED_CODE_REVIEW_AREAS = {
   "api-contracts",
   "architecture",
@@ -70,6 +76,13 @@ NON_PORTABLE_REVIEW_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     re.compile(r"\bAgents spawned\b"),
     "must use portable summary wording such as 'Specialist reviews'",
   ),
+)
+PORTABLE_REVIEW_LIFECYCLE_REQUIREMENTS: tuple[tuple[str, str], ...] = (
+  ("## Auto-Import", "portable review skills must define the inline auto-import section"),
+  ("Call the `import_review` MCP tool:", "portable review skills must describe the import_review lifecycle handoff"),
+  ("## Auto-Triage", "portable review skills must define the inline auto-triage section"),
+  ("Call the `triage_findings` MCP tool:", "portable review skills must describe the triage_findings lifecycle handoff"),
+  ("Skip auto-triage when the review produced no findings.", "portable review skills must define the no-findings auto-triage rule"),
 )
 
 
@@ -206,8 +219,31 @@ def validate_portable_review_wording(
   skill_file: Path,
   issues: list[str],
 ) -> None:
+  if skill_name == "bill-code-review" and REVIEW_SESSION_ID_PLACEHOLDER not in text:
+    issues.append(f"{skill_file}: shared code-review router must expose '{REVIEW_SESSION_ID_PLACEHOLDER}'")
+  if skill_name == "bill-code-review" and REVIEW_SESSION_ID_FORMAT not in text:
+    issues.append(
+      f"{skill_file}: shared code-review router must define the review session id format '{REVIEW_SESSION_ID_FORMAT}'"
+    )
+  if skill_name == "bill-code-review" and REVIEW_RUN_ID_PLACEHOLDER not in text:
+    issues.append(f"{skill_file}: shared code-review router must expose '{REVIEW_RUN_ID_PLACEHOLDER}'")
+  if skill_name == "bill-code-review" and REVIEW_RUN_ID_FORMAT not in text:
+    issues.append(f"{skill_file}: shared code-review router must define the review run id format '{REVIEW_RUN_ID_FORMAT}'")
+  if skill_name == "bill-code-review" and APPLIED_LEARNINGS_PLACEHOLDER not in text:
+    issues.append(f"{skill_file}: shared code-review router must expose '{APPLIED_LEARNINGS_PLACEHOLDER}'")
+
   if skill_name not in PORTABLE_REVIEW_SKILLS:
     return
+
+  if REVIEW_SESSION_ID_PLACEHOLDER not in text:
+    issues.append(f"{skill_file}: portable review skills must expose '{REVIEW_SESSION_ID_PLACEHOLDER}'")
+  if REVIEW_RUN_ID_PLACEHOLDER not in text:
+    issues.append(f"{skill_file}: portable review skills must expose '{REVIEW_RUN_ID_PLACEHOLDER}'")
+  if APPLIED_LEARNINGS_PLACEHOLDER not in text:
+    issues.append(f"{skill_file}: portable review skills must expose '{APPLIED_LEARNINGS_PLACEHOLDER}'")
+  for required_text, message in PORTABLE_REVIEW_LIFECYCLE_REQUIREMENTS:
+    if required_text not in text:
+      issues.append(f"{skill_file}: {message}; missing '{required_text}'")
 
   for pattern, message in NON_PORTABLE_REVIEW_PATTERNS:
     match = pattern.search(text)
@@ -231,6 +267,31 @@ def validate_orchestration_playbooks(root: Path, issues: list[str]) -> None:
       for section in REVIEW_DELEGATION_REQUIRED_SECTIONS:
         if section not in text:
           issues.append(f"{relative_path}: missing required delegation section '{section}'")
+    if playbook_name == "review-orchestrator":
+      if REVIEW_SESSION_ID_PLACEHOLDER not in text:
+        issues.append(
+          f"{relative_path}: review orchestration contract must expose '{REVIEW_SESSION_ID_PLACEHOLDER}'"
+        )
+      if REVIEW_SESSION_ID_FORMAT not in text:
+        issues.append(
+          f"{relative_path}: review orchestration contract must define the review session id format '{REVIEW_SESSION_ID_FORMAT}'"
+        )
+      if REVIEW_RUN_ID_PLACEHOLDER not in text:
+        issues.append(
+          f"{relative_path}: review orchestration contract must expose '{REVIEW_RUN_ID_PLACEHOLDER}'"
+        )
+      if REVIEW_RUN_ID_FORMAT not in text:
+        issues.append(
+          f"{relative_path}: review orchestration contract must define the review run id format '{REVIEW_RUN_ID_FORMAT}'"
+        )
+      if APPLIED_LEARNINGS_PLACEHOLDER not in text:
+        issues.append(
+          f"{relative_path}: review orchestration contract must expose '{APPLIED_LEARNINGS_PLACEHOLDER}'"
+        )
+      if RISK_REGISTER_FINDING_FORMAT not in text:
+        issues.append(
+          f"{relative_path}: review orchestration contract must define machine-readable findings as '{RISK_REGISTER_FINDING_FORMAT}'"
+        )
 
 
 def validate_skill_location(skill_name: str, skill_file: Path, issues: list[str]) -> None:
@@ -266,7 +327,7 @@ def validate_skill_location(skill_name: str, skill_file: Path, issues: list[str]
 
   expected_prefixes = expected_prefixes_for_package(package_name)
   if package_name == "base":
-    if any(skill_name.startswith(prefix) for prefix in ("bill-kotlin-", "bill-kmp-", "bill-backend-kotlin-", "bill-php-", "bill-go-", "bill-gradle-")):
+    if any(skill_name.startswith(prefix) for prefix in ("bill-agent-config-", "bill-kotlin-", "bill-kmp-", "bill-backend-kotlin-", "bill-php-", "bill-go-", "bill-gradle-")):
       issues.append(
         f"{skill_file}: base skills must use neutral names; move '{skill_name}' to the matching package"
       )

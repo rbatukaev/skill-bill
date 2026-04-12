@@ -18,6 +18,7 @@ SUPPORTING_FILE_TARGETS: dict[str, str] = {
 RUNTIME_SUPPORTING_FILES: dict[str, tuple[str, ...]] = {
   "bill-code-review": ("stack-routing.md", "review-delegation.md"),
   "bill-quality-check": ("stack-routing.md",),
+  "bill-agent-config-code-review": ("stack-routing.md", "review-orchestrator.md", "review-delegation.md"),
   "bill-kotlin-code-review": ("stack-routing.md", "review-orchestrator.md", "review-delegation.md"),
   "bill-backend-kotlin-code-review": ("stack-routing.md", "review-orchestrator.md", "review-delegation.md"),
   "bill-kmp-code-review": ("stack-routing.md", "review-orchestrator.md", "review-delegation.md"),
@@ -33,12 +34,20 @@ REVIEW_DELEGATION_REQUIRED_SECTIONS = (
 )
 
 PORTABLE_REVIEW_SKILLS = (
+  "bill-agent-config-code-review",
   "bill-kotlin-code-review",
   "bill-backend-kotlin-code-review",
   "bill-kmp-code-review",
   "bill-php-code-review",
   "bill-go-code-review",
 )
+
+REVIEW_RUN_ID_PLACEHOLDER = "Review run ID: <review-run-id>"
+REVIEW_RUN_ID_FORMAT = "rvw-YYYYMMDD-HHMMSS-XXXX"
+REVIEW_SESSION_ID_PLACEHOLDER = "Review session ID: <review-session-id>"
+REVIEW_SESSION_ID_FORMAT = "rvs-<uuid4>"
+APPLIED_LEARNINGS_PLACEHOLDER = "Applied learnings: none | <learning references>"
+RISK_REGISTER_FINDING_FORMAT = "- [F-001] <Severity> | <Confidence> | <file:line> | <description>"
 
 
 def skills_requiring_supporting_file(file_name: str) -> tuple[str, ...]:

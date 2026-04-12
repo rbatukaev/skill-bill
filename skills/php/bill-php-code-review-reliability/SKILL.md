@@ -1,6 +1,6 @@
 ---
 name: bill-php-code-review-reliability
-description: Use when reviewing PHP backend/server reliability risks including timeouts, retries, background work, concurrency under load, caching, and observability-critical failures.
+description: Use when reviewing PHP backend/server reliability risks including timeouts, retries, background work, concurrency under load, caching, and observability-critical failures. Use when user mentions job reliability, queue retry, cache invalidation, external client timeout, or observability in PHP.
 ---
 
 # Backend Reliability Review Specialist
@@ -54,6 +54,12 @@ Precedence for this skill: matching `.agents/skill-overrides.md` section > `AGEN
 - Confidence: `High | Medium | Low`
 - Include a minimal, concrete fix.
 
-## Output Table
-| Area | Severity | Confidence | Evidence | Why it matters | Minimal fix |
-|------|----------|------------|----------|----------------|-------------|
+## Output Format
+
+Every finding must use this exact bullet format for downstream tooling:
+
+```text
+- [F-001] <Severity> | <Confidence> | <file:line> | <description>
+```
+
+Do NOT use markdown tables, numbered lists, or any other format for findings.

@@ -1,8 +1,8 @@
 # sKill Bill
 
-sKill Bill is a portable AI skill suite for code review, feature implementation, and developer tooling. It is strongest today for Kotlin, Android/KMP, Kotlin backend/server, PHP backends, Go backends/services, and agent-config repositories.
+Treat your AI skills like software — with stable interfaces, platform overrides, and validation that prevents the repo from rotting.
 
-This repo is a collection of 44 AI skills installed into your coding agents from one source of truth. The goal is simple: keep high-value skills reusable across agents while preventing the skill catalog from turning into a pile of random prompts.
+sKill Bill is a portable collection of 48 AI skills for code review, feature implementation, and developer tooling. One repo, synced to every supported agent. Currently strongest for Kotlin, Android/KMP, Kotlin backend/server, PHP backends, Go backends/services, and governed skill/agent-config repositories.
 
 ## Why this exists
 
@@ -21,81 +21,89 @@ sKill Bill treats skills more like software:
 - CI-enforced naming and structure
 - one repo synced to every supported agent
 
-## Core model
+## What it looks like
 
-The repo is organized around a strict three-layer model:
+You interact through a handful of stable base commands. They auto-detect your stack and route to the right specialists.
 
-- `skills/base/` — canonical, user-facing capabilities such as `bill-code-review`, `bill-quality-check`, and `bill-feature-implement`
-- `skills/<platform>/` — platform-specific overrides and approved subskills
-- `orchestration/` — maintainer-facing reference snapshots for shared routing, review, and delegation contracts
+**Code review** — one command, stack-aware specialist reviews:
 
-Think of it as markdown with inheritance:
+```
+/bill-code-review
 
-- base skills define the stable contracts
-- platform skills specialize them
-- orchestration snapshots document the shared routing, review, and delegation logic that runtime-facing skills can reference via sibling supporting files in the same skill directory
+Review session ID: rvs-20260402-221530
+Review run ID: rvw-20260402-221530
+Detected stack: kotlin
+Routed to: bill-kotlin-code-review
+Execution mode: inline
+Applied learnings: none
+Specialist reviews: architecture, platform-correctness, testing
 
-## Fast mental model
+### 2. Risk Register
+- [F-001] Major | High | app/src/main/java/...:42 | Shared state mutation is not protected by synchronization.
+- [F-002] Major | Medium | app/src/main/java/...:88 | ViewModel scope is used from the wrong thread context.
+- [F-003] Minor | High | app/src/test/...:17 | Error-path coverage is missing for the new branch.
+```
 
-If you only remember four things, remember these:
+**Feature implementation** — end-to-end from design doc to PR:
 
-1. Users enter through stable skills in `skills/base/`.
-2. Platform depth lives in `skills/<platform>/`.
-3. Shared logic is documented in `orchestration/`, but runtimes consume it through sibling sidecars such as `stack-routing.md`, `review-orchestrator.md`, and `review-delegation.md`.
-4. Topology changes should start in `scripts/skill_repo_contracts.py`, then flow into skills, tests, and docs.
+```
+/bill-feature-implement
 
-That last file is the canonical map for:
+1. Collects design doc, creates acceptance criteria
+2. Creates branch, plans implementation tasks
+3. Implements each task atomically
+4. Runs /bill-code-review (auto-routed to your stack)
+5. Completeness audit against acceptance criteria
+6. Runs /bill-quality-check (auto-routed)
+7. Generates PR description
+```
 
-- which shared playbook snapshots exist
-- which runtime-facing skills require which sidecars
-- which review skills are governed by the shared review/delegation contract
+**Quality check** — auto-routed to your stack's toolchain:
 
-Current platform packages:
+```
+/bill-quality-check
 
-- `kotlin`
-- `backend-kotlin`
-- `kmp`
-- `php`
-- `go`
+Detected stack: kotlin
+Routed to: bill-kotlin-quality-check
 
-## Naming and enforcement
+Running ./gradlew check...
+Build: PASS
+Tests: 247 passed
+Lint: PASS
+```
 
-Naming is intentionally strict:
+## How routing works
 
-- base skills may use any neutral `bill-<capability>` name
-- platform overrides must use `bill-<platform>-<base-capability>`
-- deeper specialization is only allowed for code review:
-  - `bill-<platform>-code-review-<area>`
+A single `feature-implement` run chains 10-12 skill invocations:
 
-Approved `code-review` areas:
+```
+/bill-feature-implement
+├── plan + acceptance criteria
+├── implementation (atomic tasks)
+├── /bill-code-review (auto-routed)
+│   └── e.g. bill-kotlin-code-review
+│       ├── execution mode: inline or delegated
+│       ├── architecture (inline pass or subagent)
+│       ├── platform-correctness (inline pass or subagent)
+│       ├── security (inline pass or subagent, if applicable)
+│       └── testing (inline pass or subagent, if applicable)
+├── /bill-quality-check (auto-routed)
+│   └── e.g. bill-kotlin-quality-check
+├── completeness audit
+└── /bill-pr-description
+```
 
-- `architecture`
-- `performance`
-- `platform-correctness`
-- `security`
-- `testing`
-- `api-contracts`
-- `persistence`
-- `reliability`
-- `ui`
-- `ux-accessibility`
-
-That means new stacks can extend the system, but they cannot invent random new naming shapes without intentionally updating the validator and docs.
-
-## Routing model
+Small, low-risk review scopes may stay inline in one thread. Larger or higher-risk scopes use delegated review passes and report the chosen execution mode explicitly.
 
 Base entry points stay stable for users:
 
-- `/bill-code-review`
-- `/bill-quality-check`
-- `/bill-feature-implement`
+- `/bill-code-review` routes to `bill-agent-config-code-review` | `bill-kotlin-code-review` | `bill-backend-kotlin-code-review` | `bill-kmp-code-review` | `bill-php-code-review` | `bill-go-code-review`
+- `/bill-quality-check` routes to the matching stack-specific quality checker
+- `/bill-feature-implement` orchestrates the full workflow
 
-They route internally to platform-specific skills:
+## Review telemetry
 
-- `bill-code-review` -> `bill-kotlin-code-review` | `bill-backend-kotlin-code-review` | `bill-kmp-code-review` | `bill-php-code-review` | `bill-go-code-review`
-- `bill-quality-check` -> current stack-specific quality checker, including `bill-php-quality-check` for PHP repos and `bill-go-quality-check` for Go repos
-
-Today, `backend-kotlin` and `kmp` both fall back to `bill-kotlin-quality-check` until dedicated overrides exist.
+Skill Bill records review acceptance metrics locally in SQLite and can optionally sync anonymized analytics to a hosted relay or custom proxy. The `skill-bill` MCP server exposes review import, triage, learnings, and stats as native agent tools — no bash commands needed. See [docs/review-telemetry.md](docs/review-telemetry.md) for the full workflow, CLI reference, learnings management, telemetry events, and proxy configuration.
 
 ## Supported agents
 
@@ -105,15 +113,25 @@ Today, `backend-kotlin` and `kmp` both fall back to `bill-kotlin-quality-check` 
 | Claude Code | `~/.claude/commands/` |
 | GLM | `~/.glm/commands/` |
 | OpenAI Codex | `~/.codex/skills/` or `~/.agents/skills/` |
+| OpenCode | `~/.config/opencode/skills/` |
 
-The installer links all selected agents to the same repo so updates stay in sync. Runtime-facing skills reference supporting files that live beside `SKILL.md` inside each skill directory rather than depending on repo-relative playbook paths.
+The installer links all selected agents to the same repo so updates stay in sync, and registers the local Skill Bill MCP server for agents with config-based MCP support.
 
 ## Installation
 
 ```bash
-git clone <this-repo> ~/Development/skill-bill
+git clone https://github.com/Sermilion/skill-bill.git ~/Development/skill-bill
 cd ~/Development/skill-bill
 chmod +x install.sh
+./install.sh
+```
+
+If you want a stable install target instead of tracking `main`, clone a release tag and install from that checkout:
+
+```bash
+TAG=v0.x.y
+git clone --branch "$TAG" --depth 1 https://github.com/Sermilion/skill-bill.git ~/Development/skill-bill
+cd ~/Development/skill-bill
 ./install.sh
 ```
 
@@ -123,58 +141,61 @@ The installer first asks which agent targets to install to. You can choose one o
 all
 ```
 
-It then shows the available platform packages and asks which ones to install. Base skills in `skills/base/` are always installed; platform packages are installed only when selected.
+It then shows the available **optional** platform packages and asks which ones to install. Base skills in `skills/base/` and the governed `agent-config` package are always installed; the remaining platform packages are installed only when selected. The primary input path is **comma-separated numbers**, though platform names still work too.
 
 Available options are shown as separate entries:
 
 ```text
-Kotlin backend
-Kotlin
-KMP
-PHP
-Go
-all
+1. Kotlin backend
+2. Kotlin
+3. KMP
+4. PHP
+5. Go
+6. all
 ```
 
 Example platform selections:
 
 ```text
-Kotlin backend, Kotlin, KMP
-PHP
-Go
-all
+1,2,3
+4
+5
+6
 ```
 
-Each installer run replaces the existing Skill Bill links and reinstalls only the agent and platform selections from that run.
+Finally, the installer asks for the **user-facing command prefix**. Press Enter to keep the default `bill` prefix, or enter your own team/org prefix:
 
-Shared routing, review, and delegation contracts are documented in `orchestration/` and exposed to runtimes through sibling supporting files inside each skill directory. That keeps references local to the installed skill instead of relying on repo-relative playbook paths.
-
-The installer always removes existing Skill Bill links before reinstalling the selected agents and platforms.
-
-If you only use Claude Code, you can also install this repo as a Claude plugin:
-
-```bash
-claude plugin install ~/Development/skill-bill
+```text
+bill
+acme
+platform
 ```
+
+Canonical in-repo skill names stay `bill-*`. A custom prefix changes only the installed command names (for example `acme-code-review`) and rewrites installed skill references so routed workflows still resolve under that namespace.
+
+Each installer run replaces the existing Skill Bill installs and reinstalls only the agent and platform selections from that run.
+
+The installer always removes existing Skill Bill installs before reinstalling the selected agents and platforms. The default `bill` prefix keeps the current symlink-based install behavior. Custom prefixes install generated alias copies, so re-run `./install.sh` after editing skills in the repo.
 
 ## Uninstallation
 
-To remove Skill Bill skill symlinks from the supported agent install paths:
+To remove Skill Bill skill installs from the supported agent install paths:
 
 ```bash
 chmod +x uninstall.sh
 ./uninstall.sh
 ```
 
-The uninstaller is idempotent. It removes current Skill Bill skill names plus known legacy install names when they are present as symlinks, and skips non-symlink paths.
+The uninstaller is idempotent. It removes current Skill Bill installs, generated alias installs, and known legacy install names when they are present, and skips unrelated non-symlink paths.
 
 ## Skills Included
 
-### Code Review (32 skills)
+### Code Review (33 skills)
 
 | Skill | Purpose |
 |-------|---------|
 | `/bill-code-review` | Shared review router |
+| `/bill-agent-config-code-review` | Review skill/agent-config repositories |
 | `/bill-kotlin-code-review` | Kotlin baseline review orchestrator |
 | `/bill-backend-kotlin-code-review` | Backend Kotlin review override |
 | `/bill-kmp-code-review` | Android/KMP review override |
@@ -216,17 +237,20 @@ The uninstaller is idempotent. It removes current Skill Bill skill names plus kn
 | `/bill-feature-guard` | Add feature-flag rollout safety |
 | `/bill-feature-guard-cleanup` | Remove feature flags after rollout |
 
-### Utilities (8 skills)
+### Utilities (11 skills)
 
 | Skill | Purpose |
 |-------|---------|
 | `/bill-quality-check` | Shared quality-check router |
+| `/bill-agent-config-quality-check` | Agent-config repository quality-check implementation |
 | `/bill-kotlin-quality-check` | Gradle/Kotlin quality-check implementation |
 | `/bill-php-quality-check` | PHP quality-check implementation |
 | `/bill-go-quality-check` | Go quality-check implementation |
 | `/bill-boundary-history` | Maintain `agent/history.md` at module/package/area boundaries |
+| `/bill-boundary-decisions` | Record architectural/implementation decisions in `agent/decisions.md` |
 | `/bill-unit-test-value-check` | Audit unit tests for real value |
-| `/bill-pr-description` | Generate PR title, description, and QA steps |
+| `/bill-pr-description` | Generate PR title, description, and QA steps, preferring repo PR templates when present |
+| `/bill-grill-plan` | Stress-test a plan or design by walking every decision branch |
 | `/bill-new-skill-all-agents` | Create a new skill and sync it to all agents |
 
 ## Project customization
@@ -258,6 +282,70 @@ Example:
 - Keep QA steps concise.
 ```
 
+## Architecture
+
+### Core model
+
+The repo is organized around a strict three-layer model:
+
+- `skills/base/` — canonical, user-facing capabilities such as `bill-code-review`, `bill-quality-check`, and `bill-feature-implement`
+- `skills/<platform>/` — platform-specific overrides and approved subskills
+- `orchestration/` — maintainer-facing reference snapshots for shared routing, review, and delegation contracts
+
+Think of it as markdown with inheritance:
+
+- base skills define the stable contracts
+- platform skills specialize them
+- orchestration snapshots document the shared routing, review, and delegation logic that runtime-facing skills can reference via sibling supporting files in the same skill directory
+
+### Fast mental model
+
+If you only remember four things, remember these:
+
+1. Users enter through stable skills in `skills/base/`.
+2. Platform depth lives in `skills/<platform>/`.
+3. Shared logic is documented in `orchestration/`, but runtimes consume it through sibling sidecars such as `stack-routing.md`, `review-orchestrator.md`, and `review-delegation.md`.
+4. Topology changes should start in `scripts/skill_repo_contracts.py`, then flow into skills, tests, and docs.
+
+That last file is the canonical map for:
+
+- which shared playbook snapshots exist
+- which runtime-facing skills require which sidecars
+- which review skills are governed by the shared review/delegation contract
+
+Current platform packages:
+
+- `agent-config`
+- `kotlin`
+- `backend-kotlin`
+- `kmp`
+- `php`
+- `go`
+
+### Naming and enforcement
+
+Naming is intentionally strict:
+
+- base skills may use any neutral `bill-<capability>` name
+- platform overrides must use `bill-<platform>-<base-capability>`
+- deeper specialization is only allowed for code review:
+  - `bill-<platform>-code-review-<area>`
+
+Approved `code-review` areas:
+
+- `architecture`
+- `performance`
+- `platform-correctness`
+- `security`
+- `testing`
+- `api-contracts`
+- `persistence`
+- `reliability`
+- `ui`
+- `ux-accessibility`
+
+That means new stacks can extend the system, but they cannot invent random new naming shapes without intentionally updating the validator and docs.
+
 ## Validation
 
 This repo validates both content quality and taxonomy rules.
@@ -271,6 +359,16 @@ python3 scripts/validate_agent_configs.py
 ```
 
 CI runs the same checks.
+
+## Versioning and releases
+
+Skill Bill uses tag-driven GitHub Releases.
+
+- stable releases use SemVer tags such as `v0.4.0`
+- prereleases use SemVer prerelease tags such as `v0.5.0-rc.1`
+- pushing a release tag reruns validation and publishes a GitHub Release with generated notes
+
+See `RELEASING.md` for the maintainer checklist and versioning policy.
 
 The validator enforces:
 
@@ -296,4 +394,4 @@ Manual path:
 
 ## License
 
-This repository is licensed under `MIT`. You may use, copy, modify, merge, publish, distribute, sublicense, and sell it, provided the license notice is retained.
+MIT — free to use, copy, modify, merge, publish, distribute, sublicense, and sell, provided the license notice is retained.
